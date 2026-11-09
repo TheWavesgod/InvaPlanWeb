@@ -1,0 +1,49 @@
+# Frontend dependencies and build output
+node_modules/
+dist/
+.pnpm-store/
+*.tsbuildinfo
+npm-debug.log*
+pnpm-debug.log*
+
+# Python environments, bytecode and tool caches
+.venv/
+venv/
+.uv-cache/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local settings; keep example templates shareable
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Scientific inputs and generated exports
+/data/
+/exports/
+/artifacts/
+invaplan-baseline-*.csv
+invaplan-baseline-*.geojson
+invaplan-baseline-*.json
+*.[Tt][Ii][Ff]
+*.[Tt][Ii][Ff][Ff]
+*.[Tt][Ii][Ff].*
+*.[Tt][Ii][Ff][Ff].*
+*.[Gg][Pp][Kk][Gg]
+
+# M0 reports and raster previews stay local; commit the tooling
+/data-audit/*
+!/data-audit/inspect_inputs.py
+!/data-audit/inspection_requirements.txt
+!/data-audit/intake_template.json
+
+# OS-generated files
+.DS_Store
+Thumbs.db

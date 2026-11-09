@@ -1,0 +1,16 @@
+{
+  "study_area_name": null,
+  "study_area_boundary_path_or_description": null,
+  "species_or_aggregation_definition": null,
+  "main_sdm_raster_path": null,
+  "main_sdm_band_meaning": null,
+  "prediction_period_and_scenario": null,
+  "prediction_value_meaning_and_scale": null,
+  "known_nodata_rules": null,
+  "model_evaluation_table_path": null,
+  "existing_processing_script_paths": [],
+  "auxiliary_datasets": [],
+  "source_and_redistribution_permission": null,
+  "existing_python_or_conda_environment": null,
+  "notes": "Use null for unknown information. Do not infer scientific meaning from filenames or sampled ranges."
+}

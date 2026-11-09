@@ -1,0 +1,4 @@
+fastapi==0.162.2
+numpy==2.5.4
+rasterio==1.5.2
+uvicorn==0.54.0
