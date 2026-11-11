@@ -1,0 +1,17 @@
+services:
+  invaplan:
+    build: .
+    ports:
+      - "127.0.0.1:${INVAPLAN_PORT:-8766}:8765"
+    volumes:
+      - type: bind
+        source: ${INVAPLAN_RELEASE_DIR:-./data/jiaxing-sample}
+        target: /release
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/catalog', timeout=3).close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 3

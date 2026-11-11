@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .sample import POLICY_VERSION, SPECIES, SPECIES_INDEX, Sample
+from .sample import POLICY_VERSION, Sample
 
 
 @dataclass(frozen=True)
@@ -18,7 +18,7 @@ class Evaluation:
 
 
 def evaluate(sample: Sample, species_ids: list[str], excluded_ids: list[str]) -> Evaluation:
-    indices = [SPECIES_INDEX[code] for code in species_ids]
+    indices = [sample.species_index[code] for code in species_ids]
     values = sample.values[indices].reshape(len(indices), -1)
     finite = np.isfinite(values)
     focused = finite & (values.astype(np.float64) >= sample.thresholds[indices, None])
@@ -38,6 +38,7 @@ def build_run(sample: Sample, evidence: Evaluation, inputs: dict) -> dict:
     scores = np.where(ranked, 100 * evidence.counts / len(evidence.species_ids), np.nan)
     return {
         "input": inputs, "dataVersion": sample.data_version, "policyVersion": POLICY_VERSION,
+        "releaseId": sample.dataset.release_id,
         "rankedCount": int(ranked.sum()),
         "incompleteCount": int((~evidence.complete & ~evidence.excluded).sum()),
         "excludedCount": int(evidence.excluded.sum()),
@@ -52,13 +53,16 @@ def build_run(sample: Sample, evidence: Evaluation, inputs: dict) -> dict:
 
 
 def inspect_cell(sample: Sample, evidence: Evaluation, index: int) -> dict:
-    flat_values = sample.values.reshape(len(SPECIES), -1)[:, index]
+    flat_values = sample.values.reshape(len(sample.dataset.species), -1)[:, index]
     missing = [code for code, v in zip(evidence.species_ids, evidence.values[:, index]) if not np.isfinite(v)]
     count = int(evidence.counts[index])
     excluded = bool(evidence.excluded[index])
     return {
         "cell": sample.coordinates(index),
-        "values": {code: float(v) if np.isfinite(v) else None for (code, _, _), v in zip(SPECIES, flat_values)},
+        "values": {
+            item.id: float(value) if np.isfinite(value) else None
+            for item, value in zip(sample.dataset.species, flat_values, strict=True)
+        },
         "score": None if missing or excluded else 100 * count / len(evidence.species_ids),
         "c": count, "focusIds": focus_ids(evidence, index), "missingIds": missing, "excluded": excluded,
     }

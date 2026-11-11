@@ -1,0 +1,16 @@
+.git
+node_modules
+dist
+.venv
+venv
+.pnpm-store
+.uv-cache
+**/__pycache__
+**/.env*
+data
+data-audit
+artifacts
+exports
+**/*.[Tt][Ii][Ff]
+**/*.[Tt][Ii][Ff][Ff]
+**/*.[Gg][Pp][Kk][Gg]

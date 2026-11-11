@@ -1,8 +1,14 @@
 export type Bounds = [west: number, south: number, east: number, north: number]
-export type Species = { id: string; name: string; latin: string; exploratory: boolean }
+export type Species = { id: string; name: string; nameEn?: string; latin: string; exploratory: boolean }
 export type Grid = { bounds: Bounds; width: number; height: number; row0: number; col0: number }
 export type Catalog = {
   name: string
+  nameEn?: string
+  regionId?: string
+  releaseId?: string
+  source?: { zh: string; en: string }
+  defaultSpeciesIds?: string[]
+  defaultLayerId?: string
   dataVersion: string
   policyVersion: string
   baselinePeriod: string | null
@@ -16,6 +22,7 @@ export type Input = { speciesIds: string[]; k: number; excludedCellIds: string[]
 export type Recommendation = Cell & { score: number; c: number; focusIds: string[] }
 export type Run = {
   input: Input
+  releaseId?: string
   dataVersion: string
   policyVersion: string
   rankedCount: number
@@ -35,6 +42,12 @@ export type Detail = {
   excluded: boolean
 }
 
+export class RequestError extends Error {
+  constructor(readonly status: number, detail: unknown) {
+    super(typeof detail === 'string' ? detail : '')
+  }
+}
+
 export async function request<T>(path: string, input?: Input, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, {
     method: input ? 'POST' : 'GET',
@@ -45,7 +58,7 @@ export async function request<T>(path: string, input?: Input, signal?: AbortSign
   if (!response.ok) {
     const error = await response.json().catch(() => null)
     const detail = error?.detail
-    throw new Error(typeof detail === 'string' ? detail : `服务请求失败（${response.status}）`)
+    throw new RequestError(response.status, detail)
   }
   return response.json() as Promise<T>
 }

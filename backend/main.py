@@ -8,7 +8,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from .policy import build_run, evaluate, inspect_cell
-from .sample import MAX_K, SPECIES_INDEX, Sample, cell_id, load_sample
+from .datasets import DEFAULT_MANIFEST
+from .sample import MAX_K, Sample, cell_id, load_prepared_sample, load_sample
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -16,10 +17,15 @@ ROOT = Path(__file__).resolve().parent.parent
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    release_dir = os.environ.get("INVAPLAN_RELEASE_DIR")
     raster_dir = os.environ.get("INVAPLAN_RASTER_DIR")
-    if not raster_dir:
-        raise RuntimeError("Set INVAPLAN_RASTER_DIR to the directory containing the nine sample TIFFs.")
-    app.state.sample = load_sample(Path(raster_dir))
+    if release_dir:
+        app.state.sample = load_prepared_sample(Path(release_dir))
+    elif raster_dir:
+        manifest = os.environ.get("INVAPLAN_MANIFEST")
+        app.state.sample = load_sample(Path(raster_dir), Path(manifest) if manifest else DEFAULT_MANIFEST)
+    else:
+        raise RuntimeError("Set INVAPLAN_RELEASE_DIR to an imported release or INVAPLAN_RASTER_DIR to a TIFF directory.")
     yield
 
 
@@ -28,12 +34,12 @@ app = FastAPI(title="InvaPlan pilot", lifespan=lifespan)
 
 class RunInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    speciesIds: list[str] = Field(min_length=1, max_length=9)
+    speciesIds: list[str] = Field(min_length=1)
     k: int = Field(strict=True, ge=1, le=MAX_K)
-    excludedCellIds: list[str] = Field(max_length=8000)
+    excludedCellIds: list[str]
 
     def check_catalog(self, sample: Sample):
-        if len(set(self.speciesIds)) != len(self.speciesIds) or any(i not in SPECIES_INDEX for i in self.speciesIds):
+        if len(set(self.speciesIds)) != len(self.speciesIds) or any(i not in sample.species_index for i in self.speciesIds):
             raise HTTPException(422, "请选择互不重复的已登记物种。")
         if len(set(self.excludedCellIds)) != len(self.excludedCellIds) or any(i not in sample.index_by_id for i in self.excludedCellIds):
             raise HTTPException(422, "排除网格必须位于当前样例窗口，且编号不能重复。")

@@ -2,22 +2,42 @@
 
 本地交互原型。React 和 Leaflet 显示九种入侵植物的样例栅格，FastAPI 读取数据、汇总证据并计算巡查建议。
 
-## 启动
+## 导入本地数据 / Import local data
 
-在本目录执行 `pnpm install --store-dir .pnpm-store` 和 `pnpm build`。首次配置时建立项目内的 Python 环境并安装依赖。
+从项目根目录运行。首次配置 Python 环境时执行以下命令。 / Run from the repository root. Set up the Python environment once.
 
 ```powershell
 uv venv .venv --python 3.14 --cache-dir .uv-cache
 uv pip install --python '.\.venv\Scripts\python.exe' --cache-dir .uv-cache -r requirements.txt
 ```
 
-在 PowerShell 启动，路径指向含九张 TIFF 的目录。
+用仓库中的九物种清单读取外部 GeoTIFF。输出目录应为新目录。 / Import the external GeoTIFFs using the sample manifest. Use a new folder for each output.
 
 ```powershell
-.\Start-Demo.ps1 -RasterDir 'E:\Project\Website\InvaPlanDataSample\current_S2_30s'
+& .\.venv\Scripts\python.exe -B -m backend.import_dataset --manifest datasets/jiaxing-sample.json --source-dir 'E:\Project\Website\InvaPlanDataSample\current_S2_30s' --output data/jiaxing-sample
 ```
 
-浏览器打开 [本地工作台](http://127.0.0.1:8765)。按 Ctrl+C 停止服务。需要实时修改界面时，保持后端运行，在另一个终端运行 `pnpm dev`，通过 Vite 的代理使用同一组 API。
+发布包含 `manifest.json` 和 `values.npz`，记录原生网格、数据版本和源文件 SHA-256。服务启动时检查数据包校验值。增加物种时，在源清单中填写双语名称、学名、源文件、尺度和偏移，再导入到新目录。默认参与评分的物种和打开时显示的图层由清单指定。 / Each release contains `manifest.json` and `values.npz` with the native grid, version and source checksums. The server validates the package at startup. Add species to the input manifest with bilingual names and raster details, then import a new release. The manifest sets the default species and map layer.
+
+## Docker 启动 / Run with Docker
+
+Docker 引擎就绪后，从项目根目录运行。Compose 将本地发布包只读挂载到容器。 / With a Docker engine running, start Compose from the repository root. It mounts the local release read-only.
+
+```powershell
+docker compose up --build
+```
+
+打开 [Docker 工作台 / Docker workspace](http://127.0.0.1:8766/)。`INVAPLAN_RELEASE_DIR` 可指定另一个已导入目录，`INVAPLAN_PORT` 可调整宿主机端口。 / Set `INVAPLAN_RELEASE_DIR` for another imported release and `INVAPLAN_PORT` to change the host port.
+
+## PowerShell 启动 / Run with PowerShell
+
+```powershell
+pnpm install --store-dir .pnpm-store
+pnpm build
+.\Start-Demo.ps1 -ReleaseDir .\data\jiaxing-sample
+```
+
+打开 [本地工作台 / Local workspace](http://127.0.0.1:8765/)。可在另一个终端运行 `pnpm dev` 修改界面。 / Run `pnpm dev` in another terminal for frontend development.
 
 ## 演示流程
 
@@ -36,7 +56,7 @@ uv pip install --python '.\.venv\Scripts\python.exe' --cache-dir .uv-cache -r re
 - `POST /api/runs` 以 `speciesIds`、`k`、`excludedCellIds` 计算方案。
 - `POST /api/cells/{row}/{col}` 按同样条件查询网格证据。
 - `src/App.tsx` 连接页面状态与接口，`src/MapView.tsx` 负责地图交互。
-- `backend/sample.py` 读取窗口和固定门槛，`backend/policy.py` 计算资格、分数与推荐。
+- `backend/datasets.py` 读取源清单、导入和验证本地发布包。`backend/sample.py` 从发布包生成门槛和图层，`backend/policy.py` 计算资格、分数与推荐。
 - `data-audit/` 保存 M0 数据检查脚本、报告和栅格预览。
 
 下一阶段接入正式边界、发布清单、逐物种未来成员预测、39 种总览和评价表，再扩展未来规则与权重比较。当前界面标记了未来数据的可用状态。

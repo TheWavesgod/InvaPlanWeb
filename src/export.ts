@@ -33,6 +33,8 @@ export function exportDecision(format: 'json' | 'csv' | 'geojson', decision: Dec
   const { scores, ...run } = decision.run
   const context = {
     region: catalog.name,
+    releaseId: run.releaseId ?? catalog.releaseId,
+    regionId: catalog.regionId,
     bounds: catalog.grid.bounds,
     baselinePeriod: catalog.baselinePeriod,
     dataVersion: run.dataVersion,
@@ -51,6 +53,7 @@ export function exportDecision(format: 'json' | 'csv' | 'geojson', decision: Dec
       replacedCellId: latest?.action === 'replace' ? latest.replacedCell.id : '',
       remark: latest?.reason ?? '',
       dataVersion: context.dataVersion, policyVersion: context.policyVersion, dataMode: context.dataMode,
+      releaseId: context.releaseId, regionId: context.regionId,
     }
   }
   const name = 'invaplan-baseline-' + decision.confirmedAt.replace(/[:.]/g, '-')

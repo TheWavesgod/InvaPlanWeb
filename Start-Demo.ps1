@@ -1,5 +1,7 @@
+[CmdletBinding(DefaultParameterSetName = 'Release')]
 param(
-    [Parameter(Mandatory = $true)][string]$RasterDir,
+    [Parameter(ParameterSetName = 'Release')][string]$ReleaseDir = (Join-Path $PSScriptRoot 'data\jiaxing-sample'),
+    [Parameter(Mandatory = $true, ParameterSetName = 'Raster')][string]$RasterDir,
     [string]$PythonExe = "",
     [ValidateRange(1024, 65535)][int]$Port = 8765
 )
@@ -15,13 +17,22 @@ if (-not $PythonExe) {
     }
 }
 $priorRasterDir = $env:INVAPLAN_RASTER_DIR
-$env:INVAPLAN_RASTER_DIR = (Resolve-Path -LiteralPath $RasterDir).Path
+$priorReleaseDir = $env:INVAPLAN_RELEASE_DIR
 Push-Location -LiteralPath $PSScriptRoot
 try {
+    if ($PSCmdlet.ParameterSetName -eq 'Raster') {
+        $env:INVAPLAN_RELEASE_DIR = $null
+        $env:INVAPLAN_RASTER_DIR = (Resolve-Path -LiteralPath $RasterDir).Path
+    }
+    else {
+        $env:INVAPLAN_RASTER_DIR = $null
+        $env:INVAPLAN_RELEASE_DIR = (Resolve-Path -LiteralPath $ReleaseDir).Path
+    }
     & $PythonExe -B -m uvicorn backend.main:app --host 127.0.0.1 --port $Port
     if ($LASTEXITCODE -ne 0) { throw "The InvaPlan server exited with code $LASTEXITCODE." }
 }
 finally {
     Pop-Location
     $env:INVAPLAN_RASTER_DIR = $priorRasterDir
+    $env:INVAPLAN_RELEASE_DIR = $priorReleaseDir
 }

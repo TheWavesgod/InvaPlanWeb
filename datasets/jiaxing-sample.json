@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "release_id": "jiaxing-sample-v1",
+  "region": {
+    "id": "jiaxing-sample",
+    "name": {
+      "zh": "嘉兴周边样例窗口",
+      "en": "Jiaxing area sample window"
+    },
+    "bounds": [
+      120.45,
+      30.4,
+      121.25,
+      31.05
+    ]
+  },
+  "source": {
+    "zh": "本地九物种基准期样例 current_S2_30s",
+    "en": "Local nine-species baseline sample current_S2_30s"
+  },
+  "baseline_period": null,
+  "default_species_ids": [
+    "PROD0037",
+    "PROD0020",
+    "PROD0005",
+    "PROD0038",
+    "PROD0017",
+    "PROD0022",
+    "PROD0012",
+    "PROD0018",
+    "PROD0004"
+  ],
+  "default_layer_id": "PROD0017",
+  "species": [
+    {
+      "id": "PROD0037",
+      "name": {
+        "zh": "互花米草",
+        "en": "Spartina alterniflora"
+      },
+      "latin": "Spartina alterniflora",
+      "file": "PROD0037_Spartina_alterniflora_current_S2_30s.tif",
+      "scale": 1,
+      "offset": 0,
+      "exploratory": false
+    },
+    {
+      "id": "PROD0020",
+      "name": {
+        "zh": "黄顶菊",
+        "en": "Flaveria bidentis"
+      },
+      "latin": "Flaveria bidentis",
+      "file": "PROD0020_Flaveria_bidentis_current_S2_30s.tif",
+      "scale": 1,
+      "offset": 0,
+      "exploratory": false
+    },
+    {
+      "id": "PROD0005",
+      "name": {
+        "zh": "反枝苋",
+        "en": "Amaranthus retroflexus"
+      },
+      "latin": "Amaranthus retroflexus",
+      "file": "PROD0005_Amaranthus_retroflexus_current_S2_30s.tif",
+      "scale": 1,
+      "offset": 0,
+      "exploratory": false
+    },
+    {
+      "id": "PROD0038",
+      "name": {
+        "zh": "钻叶紫菀",
+        "en": "Symphyotrichum subulatum"
+      },
+      "latin": "Symphyotrichum subulatum",
+      "file": "PROD0038_Symphyotrichum_subulatum_current_S2_30s.tif",
+      "scale": 1,
+      "offset": 0,
+      "exploratory": false
+    },
+    {
+      "id": "PROD0017",
+      "name": {
+        "zh": "一年蓬",
+        "en": "Erigeron annuus"
+      },
+      "latin": "Erigeron annuus",
+      "file": "PROD0017_Erigeron_annuus_current_S2_30s.tif",
+      "scale": 1,
+      "offset": 0,
+      "exploratory": false
+    },
+    {
+      "id": "PROD0022",
+      "name": {
+        "zh": "圆叶牵牛",
+        "en": "Ipomoea purpurea"
+      },
+      "latin": "Ipomoea purpurea",
+      "file": "PROD0022_Ipomoea_purpurea_current_S2_30s.tif",
+      "scale": 1,
+      "offset": 0,
+      "exploratory": false
+    },
+    {
+      "id": "PROD0012",
+      "name": {
+        "zh": "鬼针草",
+        "en": "Bidens pilosa"
+      },
+      "latin": "Bidens pilosa",
+      "file": "PROD0012_Bidens_pilosa_current_S2_30s.tif",
+      "scale": 1,
+      "offset": 0,
+      "exploratory": false
+    },
+    {
+      "id": "PROD0018",
+      "name": {
+        "zh": "小蓬草",
+        "en": "Erigeron canadensis"
+      },
+      "latin": "Erigeron canadensis",
+      "file": "PROD0018_Erigeron_canadensis_current_S2_30s.tif",
+      "scale": 1,
+      "offset": 0,
+      "exploratory": false
+    },
+    {
+      "id": "PROD0004",
+      "name": {
+        "zh": "长芒苋",
+        "en": "Amaranthus palmeri"
+      },
+      "latin": "Amaranthus palmeri",
+      "file": "PROD0004_Amaranthus_palmeri_current_S2_30s.tif",
+      "scale": 1,
+      "offset": 0,
+      "exploratory": true
+    }
+  ]
+}

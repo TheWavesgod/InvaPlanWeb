@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import type { Bounds, Catalog, Cell, Run } from './api'
 import { cellBounds } from './api'
+import type { Translate } from './i18n'
 
 type Highlight = { cell: Cell; group: 'single' | 'tie' | 'common' | 'a' | 'b' }
 const groupColors = { single: '#f3a93c', tie: '#216ac1', common: '#15ad8e', a: '#e89b34', b: '#8264da' }
@@ -26,7 +27,8 @@ function scoreImage(catalog: Catalog, scores: Run['scores']) {
   return canvas.toDataURL()
 }
 
-export function MapView({ catalog, layer, run, highlights, selected, onPick, locateRequest }: {
+export function MapView({ catalog, layer, run, highlights, selected, onPick, locateRequest, t }: {
+  t: Translate
   catalog: Catalog
   layer: string
   run: Run | null
@@ -45,7 +47,7 @@ export function MapView({ catalog, layer, run, highlights, selected, onPick, loc
   useEffect(() => {
     const bounds = latLngBounds(catalog.grid.bounds)
     const instance = L.map(host.current!, {
-      crs: L.CRS.EPSG4326, attributionControl: false, zoomSnap: 0.25, zoomDelta: 0.5,
+      crs: L.CRS.EPSG4326, attributionControl: false, zoomControl: false, zoomSnap: 0.25, zoomDelta: 0.5,
       minZoom: 5, maxZoom: 15, scrollWheelZoom: false, preferCanvas: true,
     })
     map.current = instance
@@ -68,6 +70,13 @@ export function MapView({ catalog, layer, run, highlights, selected, onPick, loc
       map.current = null
     }
   }, [catalog])
+
+  useEffect(() => {
+    const instance = map.current
+    if (!instance) return
+    const control = L.control.zoom({ zoomInTitle: t('zoomIn'), zoomOutTitle: t('zoomOut') }).addTo(instance)
+    return () => { control.remove() }
+  }, [catalog, t])
 
   useEffect(() => {
     const group = rasters.current
@@ -109,5 +118,5 @@ export function MapView({ catalog, layer, run, highlights, selected, onPick, loc
     // A map click selects a cell without moving the map. The locate button increments the request.
   }, [locateRequest]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  return <div className="map-canvas" ref={host} aria-label="样例地图，点击网格查看证据" />
+  return <div className="map-canvas" ref={host} aria-label={t('mapLabel')} />
 }
