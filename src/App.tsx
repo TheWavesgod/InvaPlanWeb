@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { cellBounds, request } from './api'
+import { cellAtIndex, request } from './api'
 import type { Catalog, Cell, Detail, Input, Run } from './api'
 import { MapView } from './MapView'
 import { exportDecision } from './export'
 import type { Adjustment, Decision, WorkItem } from './export'
 
 type Slot = 'A' | 'B'
-type Tab = 'results' | 'detail' | 'compare'
+type Tab = 'results' | 'ties' | 'detail' | 'compare'
 type Scenario = {
   draft: Input
   run: Run | null
@@ -89,6 +89,7 @@ function Workspace({ catalog }: { catalog: Catalog }) {
   const [notice, setNotice] = useState('')
   const [adjust, setAdjust] = useState<{ action: Adjustment['action']; item: WorkItem } | null>(null)
   const [reason, setReason] = useState('')
+  const [replaceId, setReplaceId] = useState('')
   const [evidenceOpen, setEvidenceOpen] = useState(false)
 
   const scenario = slots[slot]!
@@ -98,6 +99,18 @@ function Workspace({ catalog }: { catalog: Catalog }) {
   const b = currentRun(slots.B)
   const isComparing = tab === 'compare' && !!a && !!b
   const byName = new Map(catalog.species.map(s => [s.id, s.name]))
+  const cutoff = run?.recommendations.at(-1)?.score
+  const tiedCandidates = useMemo(() => {
+    const candidates = new Map<string, Cell>()
+    if (!run || cutoff === undefined) return candidates
+    const selectedIds = new Set(worklist.map(item => item.id))
+    run.scores.forEach((score, index) => {
+      if (score !== cutoff) return
+      const candidate = cellAtIndex(catalog.grid, index)
+      if (!selectedIds.has(candidate.id)) candidates.set(candidate.id, candidate)
+    })
+    return candidates
+  }, [run, cutoff, catalog.grid, worklist])
   const comparison = useMemo(() => {
     if (!a || !b) return { common: [], onlyA: [], onlyB: [] }
     const aIds = new Set(a.recommendations.map(c => c.id))
@@ -177,21 +190,33 @@ function Workspace({ catalog }: { catalog: Catalog }) {
   function openAdjustment(action: Adjustment['action'], item: WorkItem) {
     setAdjust({ action, item })
     setReason('')
+    setReplaceId('')
   }
   function applyAdjustment(event: FormEvent) {
     event.preventDefault()
-    if (!run || !adjust || !reason.trim()) return
-    if (adjust.action === 'add' && (worklist.length >= draft.k || worklist.some(item => item.id === adjust.item.id))) return
-    const next = adjust.action === 'add'
-      ? [...worklist, adjust.item] : worklist.filter(item => item.id !== adjust.item.id)
+    if (!run || busy || !adjust || !reason.trim()) return
+    const details = { cell: adjust.item, reason: reason.trim(), timestamp: new Date().toISOString() }
+    let next: WorkItem[]
+    let record: Adjustment
+    if (adjust.action === 'replace') {
+      const outgoing = worklist.find(item => item.id === replaceId && item.score === cutoff)
+      if (!outgoing || !tiedCandidates.has(adjust.item.id) || adjust.item.score !== cutoff || worklist.length > draft.k) return
+      next = worklist.map(item => item.id === outgoing.id ? adjust.item : item)
+      record = { ...details, action: 'replace', replacedCell: outgoing }
+      setTab('results')
+    } else {
+      if (adjust.action === 'add' && (worklist.length >= draft.k || worklist.some(item => item.id === adjust.item.id))) return
+      next = adjust.action === 'add'
+        ? [...worklist, adjust.item] : worklist.filter(item => item.id !== adjust.item.id)
+      record = { ...details, action: adjust.action }
+    }
     updateScenario(previous => ({
-      ...previous, worklist: next, confirmedAt: null,
-      adjustments: [...previous.adjustments, {
-        action: adjust.action, cell: adjust.item, reason: reason.trim(), timestamp: new Date().toISOString(),
-      }],
+      ...previous, worklist: next, confirmedAt: null, adjustments: [...previous.adjustments, record],
     }))
     setAdjust(null)
-    setNotice('已记录人工调整。确认后可导出最终清单。')
+    setNotice(record.action === 'replace'
+      ? `已用 ${shortId(record.cell)} 替换 ${shortId(record.replacedCell)}。清单 ${next.length} / ${draft.k}。`
+      : '已记录人工调整。确认后可导出最终清单。')
   }
   function confirm() {
     if (!run || worklist.length === 0 || worklist.length > draft.k) return
@@ -215,19 +240,17 @@ function Workspace({ catalog }: { catalog: Catalog }) {
     ...comparison.common.map(item => ({ cell: item, group: 'common' as const })),
     ...comparison.onlyA.map(item => ({ cell: item, group: 'a' as const })),
     ...comparison.onlyB.map(item => ({ cell: item, group: 'b' as const })),
-  ] : (run ? worklist.map(item => ({ cell: item, group: 'single' as const })) : [])
+  ] : (run ? [
+    ...Array.from(tiedCandidates.values(), candidate => ({ cell: candidate, group: 'tie' as const })),
+    ...worklist.map(item => ({ cell: item, group: 'single' as const })),
+  ] : [])
   const detailInList = detail && worklist.some(item => item.id === detail.cell.id)
+  const detailIsTie = detail && tiedCandidates.has(detail.cell.id)
+  const replaceable = worklist.filter(item => item.score === cutoff)
   const stale = !!scenario.run && !run
   const displayLayer = layer === 'priority' && !run ? catalog.species[0].id : layer
-  const cutoff = run?.recommendations.at(-1)?.score
-  const cutoffTies = run && cutoff !== undefined
-    ? run.scores.filter(score => score === cutoff).length
-      - run.recommendations.filter(item => item.score === cutoff).length
-    : 0
-  const selectedCell = cell ? (() => {
-    const [w, s, e, n] = cellBounds(catalog.grid, cell)
-    return { ...cell, id: `r${cell.row}c${cell.col}`, latitude: (s + n) / 2, longitude: (w + e) / 2 }
-  })() : null
+  const selectedCell = cell ? cellAtIndex(catalog.grid,
+    (cell.row - catalog.grid.row0) * catalog.grid.width + cell.col - catalog.grid.col0) : null
 
   return <>
     <header className="topbar"><div className="top-inner">
@@ -295,7 +318,8 @@ function Workspace({ catalog }: { catalog: Catalog }) {
             <span>{displayLayer === 'priority' ? '优先分' : '相对适宜度'}</span><span className="ramp" /><span>低 → 高</span>
             <span><i className="swatch masked" /> {displayLayer === 'priority' ? '未评分' : '未评估'}</span>
             {isComparing ? <><span><i className="swatch common"/> 共同</span><span><i className="swatch picked"/> 仅 A</span><span><i className="swatch b-only"/> 仅 B</span></>
-              : <span><i className="swatch picked"/> 工作清单</span>}
+              : <><span><i className="swatch picked"/> 工作清单</span>
+                {tiedCandidates.size > 0 && <span><i className="swatch tied"/> 同分候选</span>}</>}
           </div>
           <div className="map-footer"><span>研究样例 · 原始预测 30 角秒</span><span>{num.format(catalog.grid.width * catalog.grid.height)} 个原生网格</span></div>
         </section>
@@ -304,6 +328,7 @@ function Workspace({ catalog }: { catalog: Catalog }) {
           <div className="panel-head"><span className="step">03</span><div><h2>方案与依据</h2><p>复核选择，再确认清单</p></div><span className="slot-mark">{slot}</span></div>
           <div className="result-tabs" role="group" aria-label="结果视图">
             <button className={tab === 'results' ? 'active' : ''} onClick={() => setTab('results')}>工作清单</button>
+            <button className={tab === 'ties' ? 'active' : ''} disabled={!run || tiedCandidates.size === 0} onClick={() => setTab('ties')}>同分候选</button>
             <button className={tab === 'detail' ? 'active' : ''} onClick={() => setTab('detail')}>网格详情</button>
             <button className={tab === 'compare' ? 'active' : ''} onClick={() => setTab('compare')}>比较</button>
           </div>
@@ -316,7 +341,9 @@ function Workspace({ catalog }: { catalog: Catalog }) {
                 <div><strong>{num.format(run.rankedCount)}</strong><span>证据完整</span></div>
                 <div><strong>{num.format(run.incompleteCount)}</strong><span>证据不足</span></div></div>
               <p className="micro">系统推荐 {run.recommendations.length} 个 · 人工调整 {scenario.adjustments.length} 次{run.excludedCount ? ` · 排除 ${run.excludedCount} 个` : ''}</p>
-              {cutoffTies > 0 && <p className="message warning">另有 {num.format(cutoffTies)} 个网格与末位同分。本轮按原生网格编号确定先后。</p>}
+              {tiedCandidates.size > 0 && <button className="tie-summary" onClick={() => setTab('ties')}>
+                <i className="swatch tied"/><span>查看 {num.format(tiedCandidates.size)} 个同分候选</span><Icon name="arrow" size={14}/>
+              </button>}
               {run.recommendations.length < draft.k && <p className="message warning">符合正分条件的网格不足 {draft.k} 个。</p>}
               <div className="recommendations">{worklist.map((item, index) => <article className="result-item" key={item.id}>
                 <button className="cell-link" onClick={() => pickCell(item, true)}><span className="rank">{index + 1}</span><span>
@@ -327,6 +354,14 @@ function Workspace({ catalog }: { catalog: Catalog }) {
               {slot === 'A' && <button className="secondary full" onClick={copyForComparison}><Icon name="compare"/>{slots.B ? '编辑方案 B' : '复制条件为方案 B'}</button>}
             </> : <div className="empty"><span className="empty-icon"><Icon name="map" size={24}/></span><h3>准备一份巡查方案</h3>
               <p>选择物种和巡查上限，再生成推荐。也可以先点击地图查看原始预测。</p></div>)}
+            {tab === 'ties' && (tiedCandidates.size > 0 ? <>
+              <div className="tie-heading"><i className="swatch tied"/><h3>{num.format(tiedCandidates.size)} 个同分候选</h3></div>
+              <p className="micro">蓝色网格与原始推荐末位同为 {cutoff?.toFixed(1)} 分。选择地图或下方列表中的网格，可用它替换清单中的同分项。</p>
+              <div className="recommendations tie-list">{Array.from(tiedCandidates.values(), candidate =>
+                <button key={candidate.id} className="difference" onClick={() => pickCell(candidate, true)}>
+                  <span>{shortId(candidate)}</span><span>{candidate.longitude.toFixed(4)}°E，{candidate.latitude.toFixed(4)}°N</span>
+                </button>)}</div>
+            </> : <p className="micro">当前方案没有可选的同分网格。</p>)}
             {tab === 'detail' && (detail ? <>
               <div className="detail-title"><div><h3>{shortId(detail.cell)}</h3>
                 <p>{detail.cell.longitude.toFixed(4)}°E，{detail.cell.latitude.toFixed(4)}°N</p></div>
@@ -342,7 +377,12 @@ function Workspace({ catalog }: { catalog: Catalog }) {
                   <td>{!draft.speciesIds.includes(s.id) ? '未选' : detail.values[s.id] == null ? '缺失' : detail.focusIds.includes(s.id) ? <span className="tag green">关注</span> : '未触发'}</td>
                 </tr>)}</tbody></table>
               <p className="micro">门槛固定为各物种在样例窗口内的第 90 百分位。</p>
+              {detailIsTie && <p className="message tie-message"><i className="swatch tied"/> 同分候选 · 可以替换清单中的同分网格</p>}
               <div className="detail-actions">
+                {detailIsTie && replaceable.length > 0 && <button className="primary" disabled={busy}
+                  onClick={() => openAdjustment('replace', { ...detail.cell, score: detail.score, c: detail.c, focusIds: detail.focusIds })}>
+                  替换清单网格
+                </button>}
                 <button className="secondary" disabled={busy} onClick={() => changeDraft({ ...draft, excludedCellIds: detail.excluded
                   ? draft.excludedCellIds.filter(id => id !== detail.cell.id) : [...draft.excludedCellIds, detail.cell.id] })}>
                   {detail.excluded ? '恢复候选' : '排除候选'}
@@ -375,10 +415,23 @@ function Workspace({ catalog }: { catalog: Catalog }) {
       <footer className="workspace-footer"><span>InvaPlan · 多物种巡查优先区原型</span><span>{catalog.policyVersion} · {catalog.dataVersion}</span></footer>
     </main>
     {adjust && <div className="scrim" onClick={() => setAdjust(null)}><form className="dialog" onClick={event => event.stopPropagation()} onSubmit={applyAdjustment} role="dialog" aria-modal="true" aria-labelledby="adjust-title">
-      <h2 id="adjust-title">{adjust.action === 'add' ? '人工加入' : '移出清单'} {shortId(adjust.item)}</h2>
-      <p>记录此次调整的原因，原始推荐会随方案保留。</p>
-      <label htmlFor="adjust-reason">调整理由</label><textarea id="adjust-reason" value={reason} maxLength={280} required autoFocus onChange={e => setReason(e.target.value)} />
-      <div className="dialog-actions"><button className="secondary" type="button" onClick={() => setAdjust(null)}>取消</button><button className="primary" disabled={!reason.trim()}>记录调整</button></div>
+      <h2 id="adjust-title">{adjust.action === 'replace' ? '换入候选' : adjust.action === 'add' ? '人工加入' : '移出清单'} {shortId(adjust.item)}</h2>
+      <p>{adjust.action === 'replace'
+        ? `选择换出的同分网格。替换后仍为 ${worklist.length} / ${draft.k}，原始推荐会随方案保留。`
+        : '记录此次调整的原因，原始推荐会随方案保留。'}</p>
+      {adjust.action === 'replace' && <>
+        <label htmlFor="replace-cell">换出网格</label>
+        <select id="replace-cell" required autoFocus value={replaceId} onChange={e => setReplaceId(e.target.value)}>
+          <option value="">选择清单中的同分网格</option>
+          {replaceable.map(item => <option key={item.id} value={item.id}>{shortId(item)} · {item.score?.toFixed(1)} 分</option>)}
+        </select>
+      </>}
+      <label htmlFor="adjust-reason">{adjust.action === 'replace' ? '替换理由' : '调整理由'}</label>
+      <textarea id="adjust-reason" value={reason} maxLength={280} required autoFocus={adjust.action !== 'replace'} onChange={e => setReason(e.target.value)} />
+      <div className="dialog-actions"><button className="secondary" type="button" onClick={() => setAdjust(null)}>取消</button>
+        <button className="primary" disabled={!reason.trim() || (adjust.action === 'replace' && !replaceId)}>
+          {adjust.action === 'replace' ? '确认替换' : '记录调整'}
+        </button></div>
     </form></div>}
     {evidenceOpen && <div className="scrim" onClick={() => setEvidenceOpen(false)}><section className="dialog" onClick={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="evidence-title">
       <h2 id="evidence-title">数据与决策规则</h2>

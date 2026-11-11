@@ -3,8 +3,8 @@ import L from 'leaflet'
 import type { Bounds, Catalog, Cell, Run } from './api'
 import { cellBounds } from './api'
 
-type Highlight = { cell: Cell; group: 'single' | 'common' | 'a' | 'b' }
-const groupColors = { single: '#f3a93c', common: '#15ad8e', a: '#e89b34', b: '#8264da' }
+type Highlight = { cell: Cell; group: 'single' | 'tie' | 'common' | 'a' | 'b' }
+const groupColors = { single: '#f3a93c', tie: '#216ac1', common: '#15ad8e', a: '#e89b34', b: '#8264da' }
 
 function latLngBounds([west, south, east, north]: Bounds): L.LatLngBoundsExpression {
   return [[south, west], [north, east]]
@@ -90,7 +90,9 @@ export function MapView({ catalog, layer, run, highlights, selected, onPick, loc
     for (const { cell, group: kind } of highlights) {
       const color = groupColors[kind]
       L.rectangle(latLngBounds(cellBounds(catalog.grid, cell)), {
-        color, weight: 2, fillColor: color, fillOpacity: 0.8, interactive: false,
+        color, weight: kind === 'tie' ? 1 : 2,
+        fillColor: kind === 'tie' ? '#8ec5ff' : color,
+        fillOpacity: kind === 'tie' ? 0.85 : 0.8, interactive: false,
       }).addTo(group)
     }
     if (selected) {

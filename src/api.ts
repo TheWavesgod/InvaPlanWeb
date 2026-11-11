@@ -50,6 +50,16 @@ export async function request<T>(path: string, input?: Input, signal?: AbortSign
   return response.json() as Promise<T>
 }
 
+export function cellAtIndex(grid: Grid, index: number): Cell {
+  const row = grid.row0 + Math.floor(index / grid.width)
+  const col = grid.col0 + index % grid.width
+  const [west, south, east, north] = cellBounds(grid, { row, col })
+  return {
+    id: `r${String(row).padStart(5, '0')}c${String(col).padStart(5, '0')}`,
+    row, col, longitude: (west + east) / 2, latitude: (south + north) / 2,
+  }
+}
+
 export function cellBounds(grid: Grid, cell: Pick<Cell, 'row' | 'col'>): Bounds {
   const [west, south, east, north] = grid.bounds
   const dx = (east - west) / grid.width
