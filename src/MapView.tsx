@@ -19,8 +19,8 @@ function scoreImage(catalog: Catalog, scores: Run['scores']) {
   const image = context.createImageData(canvas.width, canvas.height)
   scores.forEach((score, index) => {
     const t = (score ?? 0) / 100
-    image.data.set(score === null ? [124, 136, 130, 255] : [
-      Math.round(234 - 199 * t), Math.round(239 - 113 * t), Math.round(215 - 118 * t), 255,
+    image.data.set(score === null ? [130, 130, 130, 255] : [
+      Math.round(255 - 111 * t), Math.round(239 - 215 * t), Math.round(218 - 168 * t), 255,
     ], index * 4)
   })
   context.putImageData(image, 0, 0)

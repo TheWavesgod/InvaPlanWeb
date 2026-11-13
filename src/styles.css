@@ -87,9 +87,9 @@ input[type="range"] { width: 100%; margin: 3px 0; accent-color: var(--green); }
 .map-caption { display: inline-flex; gap: 6px; align-items: center; position: absolute; bottom: 8px; left: 8px; z-index: 500; pointer-events: none; color: #3f5f50; background: #fffefaed; padding: 5px 7px; border-radius: 4px; font-size: 10px; }
 .map-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 11px; padding: 10px; border-top: 1px solid var(--line); color: #4a6256; font-size: 11px; }
 .map-legend span { display: inline-flex; align-items: center; gap: 4px; }
-.ramp { height: 7px; width: 66px; background: linear-gradient(90deg, #eaefd7, #8cbc84, #237e61); border-radius: 3px; }
+.ramp { height: 7px; width: 66px; background: linear-gradient(90deg, #ffefda, #901832); border-radius: 3px; }
 .swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
-.swatch.masked { background: #7c8882; }
+.swatch.masked { background: #828282; }
 .swatch.picked { background: #e89b34; }
 .swatch.tied { background: #8ec5ff; border: 1px solid #216ac1; }
 .tie-summary { display: flex; align-items: center; gap: 7px; width: 100%; padding: 7px 8px; margin: 7px 0; border-radius: 5px; border: 1px solid #d0e3fa; background: #edf5ff; color: #225185; font-size: 11px; text-align: left; }

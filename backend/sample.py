@@ -18,10 +18,10 @@ def _raster_png(array: np.ndarray) -> bytes:
     """Encode the small RGB display raster with no interpolation or georeferencing."""
     valid = np.isfinite(array)
     t = np.where(valid, array, 0)[..., None]
-    low = np.array([234, 239, 215])
-    high = np.array([35, 126, 97])
+    low = np.array([255, 239, 218])
+    high = np.array([144, 24, 50])
     rgb = np.rint(low + (high - low) * t).astype(np.uint8)
-    rgb[~valid] = [124, 136, 130]
+    rgb[~valid] = [130, 130, 130]
 
     def chunk(kind: bytes, payload: bytes) -> bytes:
         return (struct.pack(">I", len(payload)) + kind + payload
