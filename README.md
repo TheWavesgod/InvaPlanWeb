@@ -39,6 +39,16 @@ pnpm build
 
 打开 [本地工作台 / Local workspace](http://127.0.0.1:8765/)。可在另一个终端运行 `pnpm dev` 修改界面。 / Run `pnpm dev` in another terminal for frontend development.
 
+## 未来情景 / Future scenarios
+
+用 `-ClimateDir` 指向本地 Chapter 4 科学发布目录。启动时校验清单、源文件校验和，以及与基准期样例的网格和值是否匹配。 / Point `-ClimateDir` at the local Chapter 4 scientific release. Startup checks the product manifest, raster checksums and the baseline window.
+
+```powershell
+.\Start-Demo.ps1 -RasterDir .\data\current_S2_30s -ClimateDir 'K:\C4_PUBLICATION_MASTER\zenodo_release'
+```
+
+地图提供 SSP1-2.6、SSP2-4.5 和 SSP5-8.5，覆盖 2041–2060 和 2081–2100。未来层为五个模型的平均适宜度，变化层为未来均值减去基准值。变化图色标在 ±0.25 饱和，网格详情显示实际数值。调查评分基于基准期。 / The map shows the five-model mean and its difference from the baseline for three SSPs and two periods. The change legend saturates at ±0.25. Cell details show the underlying values. Survey scores use the baseline.
+
 ## 演示流程
 
 默认九物种全选。生成方案 A，点击清单项查看网格证据。蓝色网格与原始推荐末位同分，橙色网格属于当前工作清单。打开「同分候选」，可用一个蓝色网格替换清单中的同分网格，填写理由后清单数量保持不变。JSON 和 GeoJSON 保留完整原始推荐与人工调整，CSV 同时记录原始推荐编号和调整历史。复制为方案 B，改变数量上限，再生成一次。比较页会在同一张地图上用三种颜色标出交集、A 独有和 B 独有。工作清单支持带理由的移出和人工加入。确认后可导出 CSV、GeoJSON 或含完整决定的 JSON。已确认方案保存在当前浏览器，同一数据和规则版本下刷新可继续查看。

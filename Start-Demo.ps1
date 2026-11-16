@@ -2,6 +2,7 @@
 param(
     [Parameter(ParameterSetName = 'Release')][string]$ReleaseDir = (Join-Path $PSScriptRoot 'data\jiaxing-sample'),
     [Parameter(Mandatory = $true, ParameterSetName = 'Raster')][string]$RasterDir,
+    [string]$ClimateDir = "",
     [string]$PythonExe = "",
     [ValidateRange(1024, 65535)][int]$Port = 8765
 )
@@ -18,8 +19,10 @@ if (-not $PythonExe) {
 }
 $priorRasterDir = $env:INVAPLAN_RASTER_DIR
 $priorReleaseDir = $env:INVAPLAN_RELEASE_DIR
+$priorClimateDir = $env:INVAPLAN_CLIMATE_DIR
 Push-Location -LiteralPath $PSScriptRoot
 try {
+    if ($ClimateDir) { $env:INVAPLAN_CLIMATE_DIR = (Resolve-Path -LiteralPath $ClimateDir).Path }
     if ($PSCmdlet.ParameterSetName -eq 'Raster') {
         $env:INVAPLAN_RELEASE_DIR = $null
         $env:INVAPLAN_RASTER_DIR = (Resolve-Path -LiteralPath $RasterDir).Path
@@ -35,4 +38,5 @@ finally {
     Pop-Location
     $env:INVAPLAN_RASTER_DIR = $priorRasterDir
     $env:INVAPLAN_RELEASE_DIR = $priorReleaseDir
+    $env:INVAPLAN_CLIMATE_DIR = $priorClimateDir
 }

@@ -14,13 +14,18 @@ POLICY_VERSION = "pilot_baseline_p90_v1"
 MAX_K = 30
 
 
-def _raster_png(array: np.ndarray) -> bytes:
+def _raster_png(array: np.ndarray, *, signed: bool = False) -> bytes:
     """Encode the small RGB display raster with no interpolation or georeferencing."""
     valid = np.isfinite(array)
-    t = np.where(valid, array, 0)[..., None]
-    low = np.array([255, 239, 218])
+    values = np.where(valid, array, 0)[..., None]
     high = np.array([144, 24, 50])
-    rgb = np.rint(low + (high - low) * t).astype(np.uint8)
+    if signed:
+        low = np.array([247, 247, 247])
+        high = np.where(values < 0, [33, 86, 155], high)
+        values = np.clip(np.abs(values) / 0.25, 0, 1)
+    else:
+        low = np.array([255, 239, 218])
+    rgb = np.rint(low + (high - low) * values).astype(np.uint8)
     rgb[~valid] = [130, 130, 130]
 
     def chunk(kind: bytes, payload: bytes) -> bytes:

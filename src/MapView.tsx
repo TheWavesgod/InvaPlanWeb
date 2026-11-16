@@ -27,10 +27,11 @@ function scoreImage(catalog: Catalog, scores: Run['scores']) {
   return canvas.toDataURL()
 }
 
-export function MapView({ catalog, layer, run, highlights, selected, onPick, locateRequest, t }: {
+export function MapView({ catalog, layer, climateRaster, run, highlights, selected, onPick, locateRequest, t }: {
   t: Translate
   catalog: Catalog
   layer: string
+  climateRaster: string | null
   run: Run | null
   highlights: Highlight[]
   selected: Cell | null
@@ -86,11 +87,11 @@ export function MapView({ catalog, layer, run, highlights, selected, onPick, loc
     if (layer !== 'priority' || run) {
       const src = layer === 'priority'
         ? scoreImage(catalog, run!.scores)
-        : `/api/layers/${encodeURIComponent(layer)}.png`
+        : climateRaster ?? `/api/layers/${encodeURIComponent(layer)}.png`
       L.imageOverlay(src, bounds, { interactive: false, className: 'grid-raster' }).addTo(group)
     }
     L.rectangle(bounds, { color: '#425c53', weight: 1, dashArray: '4 4', fill: false, interactive: false }).addTo(group)
-  }, [catalog, layer, run])
+  }, [catalog, layer, climateRaster, run])
 
   useEffect(() => {
     const group = outlines.current

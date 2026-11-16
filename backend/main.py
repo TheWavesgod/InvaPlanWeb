@@ -2,11 +2,13 @@ from contextlib import asynccontextmanager
 import os
 from pathlib import Path
 
+import numpy as np
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
+from .climate import SCENARIOS, load_climate
 from .policy import build_run, evaluate, inspect_cell
 from .datasets import DEFAULT_MANIFEST
 from .sample import MAX_K, Sample, cell_id, load_prepared_sample, load_sample
@@ -26,6 +28,8 @@ async def lifespan(app: FastAPI):
         app.state.sample = load_sample(Path(raster_dir), Path(manifest) if manifest else DEFAULT_MANIFEST)
     else:
         raise RuntimeError("Set INVAPLAN_RELEASE_DIR to an imported release or INVAPLAN_RASTER_DIR to a TIFF directory.")
+    climate_dir = os.environ.get("INVAPLAN_CLIMATE_DIR")
+    app.state.climate = load_climate(Path(climate_dir), app.state.sample) if climate_dir else {}
     yield
 
 
@@ -47,7 +51,10 @@ class RunInput(BaseModel):
 
 @app.get("/api/catalog")
 def catalog(request: Request):
-    return request.app.state.sample.catalog()
+    return {
+        **request.app.state.sample.catalog(),
+        "climateScenarios": [SCENARIOS[key] for key in request.app.state.climate],
+    }
 
 
 @app.get("/api/layers/{species_id}.png")
@@ -58,6 +65,16 @@ def layer(species_id: str, request: Request):
     return Response(sample.layers[species_id], media_type="image/png")
 
 
+@app.get("/api/climate/{scenario}/{kind}/{species_id}.png")
+def climate_layer(scenario: str, kind: str, species_id: str, request: Request):
+    try:
+        _, layers = request.app.state.climate[scenario]
+        image = layers[kind, species_id]
+    except KeyError:
+        raise HTTPException(404, "没有找到该图层。") from None
+    return Response(image, media_type="image/png")
+
+
 @app.post("/api/runs")
 def run(inputs: RunInput, request: Request):
     sample: Sample = request.app.state.sample
@@ -66,13 +83,23 @@ def run(inputs: RunInput, request: Request):
 
 
 @app.post("/api/cells/{row}/{col}")
-def cell(row: int, col: int, inputs: RunInput, request: Request):
+def cell(row: int, col: int, inputs: RunInput, request: Request, climate: str | None = None):
     sample: Sample = request.app.state.sample
     inputs.check_catalog(sample)
     index = sample.index_by_id.get(cell_id(row, col))
     if index is None:
         raise HTTPException(404, "网格在当前样例窗口之外。")
-    return inspect_cell(sample, evaluate(sample, inputs.speciesIds, inputs.excludedCellIds), index)
+    detail = inspect_cell(sample, evaluate(sample, inputs.speciesIds, inputs.excludedCellIds), index)
+    if climate is not None:
+        if climate not in request.app.state.climate:
+            raise HTTPException(404, "没有找到该图层。")
+        future, _ = request.app.state.climate[climate]
+        detail["climateScenario"] = climate
+        detail["futureValues"] = {
+            species.id: float(value) if np.isfinite(value) else None
+            for species, value in zip(sample.dataset.species, future.reshape(len(sample.dataset.species), -1)[:, index], strict=True)
+        }
+    return detail
 
 
 if (ROOT / "dist/assets").is_dir():

@@ -116,6 +116,9 @@ function Workspace({ catalog, language, t, languageControl }: {
   const [slot, setSlot] = useState<Slot>('A')
   const [tab, setTab] = useState<Tab>('results')
   const [layer, setLayer] = useState(catalog.defaultLayerId ?? catalog.species[0].id)
+  const [climate, setClimate] = useState('')
+  const [showChange, setShowChange] = useState(false)
+  const activeClimate = catalog.climateScenarios?.find(item => item.id === climate)
   const [cell, setCell] = useState<Pick<Cell, 'row' | 'col'> | null>(null)
   const [detail, setDetail] = useState<Detail | null>(null)
   const [detailError, setDetailError] = useState<Message | null>(null)
@@ -168,11 +171,12 @@ function Workspace({ catalog, language, t, languageControl }: {
     const abort = new AbortController()
     setDetail(null)
     setDetailError(null)
-    request<Detail>(`/api/cells/${cell.row}/${cell.col}`, draft, abort.signal)
+    const query = climate ? `?climate=${encodeURIComponent(climate)}` : ''
+    request<Detail>(`/api/cells/${cell.row}/${cell.col}${query}`, draft, abort.signal)
       .then(value => { if (!abort.signal.aborted) setDetail(value) })
       .catch(cause => { if (!abort.signal.aborted) setDetailError(requestFailure(cause)) })
     return () => abort.abort()
-  }, [cell, draft])
+  }, [cell, draft, climate])
 
   function updateScenario(update: (previous: Scenario) => Scenario, key = slot) {
     setSlots(previous => ({ ...previous, [key]: update(previous[key]!) }))
@@ -286,6 +290,9 @@ function Workspace({ catalog, language, t, languageControl }: {
   const replaceable = worklist.filter(item => item.score === cutoff)
   const stale = !!scenario.run && !run
   const displayLayer = layer === 'priority' && !run ? catalog.species[0].id : layer
+  const climateRaster = activeClimate && displayLayer !== 'priority'
+    ? `/api/climate/${activeClimate.id}/${showChange ? 'change' : 'future'}/${encodeURIComponent(displayLayer)}.png` : null
+  const changeLayer = Boolean(climateRaster && showChange)
   const selectedCell = cell ? cellAtIndex(catalog.grid,
     (cell.row - catalog.grid.row0) * catalog.grid.width + cell.col - catalog.grid.col0) : null
 
@@ -332,7 +339,7 @@ function Workspace({ catalog, language, t, languageControl }: {
               </label>)}</div>
             </section>
             <section className="section-block mode"><div className="field-heading"><span className="field-label">{t('analysisMode')}</span><span className="tag green">{t('baseline')}</span></div>
-              <p>{t('futureUnavailable')}</p>
+              <p>{t('baselineRanking')}</p>
             </section>
             <button type="submit" className="primary run-button" disabled={!draft.speciesIds.length || busy}>{busy ? t('generating') : t('generate')} <Icon name="arrow"/></button>
           </fieldset>
@@ -345,14 +352,27 @@ function Workspace({ catalog, language, t, languageControl }: {
               <option value="priority" disabled={!run}>{t('planPriority')}</option>
             </select></label>
           </div>
+          {!!catalog.climateScenarios?.length && <div className="climate-controls">
+            <label>{t('climateScenario')} <select value={climate} onChange={event => {
+              setClimate(event.target.value)
+              if (event.target.value && displayLayer === 'priority') setLayer(catalog.defaultLayerId ?? catalog.species[0].id)
+            }}>
+              <option value="">{t('baseline')}</option>
+              {catalog.climateScenarios.map(item => <option key={item.id} value={item.id}>{item.ssp} · {item.period}</option>)}
+            </select></label>
+            {activeClimate && <label><input type="checkbox" checked={showChange} disabled={displayLayer === 'priority'}
+              onChange={event => setShowChange(event.target.checked)} /> {t('changeFromBaseline')}</label>}
+          </div>}
           <div className="map-wrap">
-            <MapView t={t} catalog={catalog} layer={displayLayer} run={run}
+            <MapView t={t} catalog={catalog} layer={displayLayer} climateRaster={climateRaster} run={run}
               highlights={highlights} selected={selectedCell} locateRequest={locate}
               onPick={(row, col) => pickCell({ row, col })} />
             <div className="map-caption"><Icon name="map" size={14}/> WGS 84 · {t('sampleRectangle')}</div>
           </div>
           <div className="map-legend">
-            <span>{displayLayer === 'priority' ? t('priority') : t('suitability')}</span><span className="ramp" /><span>{t('lowHigh')}</span>
+            <span>{changeLayer ? t('changeFromBaseline') : displayLayer === 'priority' ? t('priority') : climateRaster ? t('futureSuitability') : t('suitability')}</span>
+            {changeLayer ? <><span>≤−0.25</span><span className="ramp climate-change" /><span>≥+0.25</span></>
+              : <><span className="ramp" /><span>{t('lowHigh')}</span></>}
             <span><i className="swatch masked" /> {displayLayer === 'priority' ? t('notScored') : t('notAssessed')}</span>
             {isComparing ? <><span><i className="swatch common"/> {t('common')}</span><span><i className="swatch picked"/> {t('onlyA')}</span><span><i className="swatch b-only"/> {t('onlyB')}</span></>
               : <><span><i className="swatch picked"/> {t('worklist')}</span>
@@ -410,12 +430,24 @@ function Workspace({ catalog, language, t, languageControl }: {
                 a: a.scores[(detail.cell.row - catalog.grid.row0) * catalog.grid.width + detail.cell.col - catalog.grid.col0]?.toFixed(1) ?? '—',
                 b: b.scores[(detail.cell.row - catalog.grid.row0) * catalog.grid.width + detail.cell.col - catalog.grid.col0]?.toFixed(1) ?? '—',
               })}</div>}
-              <table className="detail-table"><thead><tr><th>{t('species')}</th><th>{t('prediction')}</th><th>{t('threshold')}</th><th>{t('status')}</th></tr></thead>
+              <table className="detail-table"><thead><tr><th>{t('species')}</th><th>{t(climate ? 'baseline' : 'prediction')}</th><th>{t('threshold')}</th><th>{t('status')}</th></tr></thead>
                 <tbody>{catalog.species.map(s => <tr key={s.id}>
                   <td>{byName.get(s.id)}</td><td>{decimal(detail.values[s.id])}</td><td>{decimal(catalog.thresholds[s.id].value)}</td>
                   <td>{!draft.speciesIds.includes(s.id) ? t('notSelected') : detail.values[s.id] == null ? t('missing') : detail.focusIds.includes(s.id) ? <span className="tag green">{t('focus')}</span> : t('belowThreshold')}</td>
                 </tr>)}</tbody></table>
               <p className="micro">{t('thresholdNote')}</p>
+              {activeClimate && detail.climateScenario === activeClimate.id && detail.futureValues && <>
+                <h3>{activeClimate.ssp} · {activeClimate.period}</h3>
+                <table className="detail-table"><thead><tr><th>{t('species')}</th><th>{t('futureSuitability')}</th><th>{t('changeFromBaseline')}</th></tr></thead>
+                  <tbody>{catalog.species.map(s => {
+                    const future = detail.futureValues?.[s.id]
+                    const baseline = detail.values[s.id]
+                    const change = future == null || baseline == null ? null : future - baseline
+                    return <tr key={s.id}><td>{byName.get(s.id)}</td><td>{decimal(future)}</td>
+                      <td>{change != null && change >= 0 ? '+' : ''}{decimal(change)}</td></tr>
+                  })}</tbody>
+                </table>
+              </>}
               {detailIsTie && <p className="message tie-message"><i className="swatch tied"/> {t('tieDetail')}</p>}
               <div className="detail-actions">
                 {detailIsTie && replaceable.length > 0 && <button className="primary" disabled={busy}

@@ -1,6 +1,7 @@
 export type Bounds = [west: number, south: number, east: number, north: number]
 export type Species = { id: string; name: string; nameEn?: string; latin: string; exploratory: boolean }
 export type Grid = { bounds: Bounds; width: number; height: number; row0: number; col0: number }
+export type ClimateScenario = { id: string; ssp: string; period: string }
 export type Catalog = {
   name: string
   nameEn?: string
@@ -15,6 +16,7 @@ export type Catalog = {
   species: Species[]
   grid: Grid
   thresholds: Record<string, { value: number; validCount: number }>
+  climateScenarios?: ClimateScenario[]
   maxK: number
 }
 export type Cell = { id: string; row: number; col: number; latitude: number; longitude: number }
@@ -35,6 +37,8 @@ export type Run = {
 export type Detail = {
   cell: Cell
   values: Record<string, number | null>
+  climateScenario?: string
+  futureValues?: Record<string, number | null>
   score: number | null
   c: number
   focusIds: string[]

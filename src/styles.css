@@ -87,7 +87,10 @@ input[type="range"] { width: 100%; margin: 3px 0; accent-color: var(--green); }
 .map-caption { display: inline-flex; gap: 6px; align-items: center; position: absolute; bottom: 8px; left: 8px; z-index: 500; pointer-events: none; color: #3f5f50; background: #fffefaed; padding: 5px 7px; border-radius: 4px; font-size: 10px; }
 .map-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 11px; padding: 10px; border-top: 1px solid var(--line); color: #4a6256; font-size: 11px; }
 .map-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.climate-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 10px; font-size: 12px; }
+.climate-controls label { display: inline-flex; align-items: center; gap: 6px; }
 .ramp { height: 7px; width: 66px; background: linear-gradient(90deg, #ffefda, #901832); border-radius: 3px; }
+.ramp.climate-change { background: linear-gradient(90deg, #21569b, #f7f7f7, #901832); }
 .swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
 .swatch.masked { background: #828282; }
 .swatch.picked { background: #e89b34; }
