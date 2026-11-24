@@ -1,17 +1,30 @@
 """Serve analysis-ready baseline data on its original grid."""
 
 from dataclasses import dataclass
+from hashlib import sha256
+import json
 from pathlib import Path
 import struct
 import zlib
 
 import numpy as np
+from pydantic import BaseModel, Field
 
-from .datasets import DEFAULT_MANIFEST, Dataset, Grid, data_version, read_dataset, read_rasters, read_release
+from .datasets import DEFAULT_MANIFEST, Dataset, Grid, data_version, file_sha256, read_dataset, read_rasters, read_release
 
 
-POLICY_VERSION = "pilot_baseline_p90_v1"
 MAX_K = 30
+JIAXING_S2_VERSION = "sample-window-7f51acf6589d"
+FULL_RELEASE_ID = "jiaxing-39-s2-v1"
+
+
+class MaxSSSProfile(BaseModel):
+    dataVersion: str
+    thresholdTable: str
+    thresholdTableSha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    thresholds: dict[str, float]
+    archiveCellCount: int = Field(ge=0)
+    demoOnlyCells: list[str]
 
 
 def _raster_png(array: np.ndarray, *, signed: bool = False) -> bytes:
@@ -57,6 +70,9 @@ class Sample:
     data_version: str
     layers: dict[str, bytes]
     index_by_id: dict[str, int]
+    policy_version: str
+    maxsss: MaxSSSProfile | None
+    demo_only: frozenset[str]
 
     @property
     def width(self):
@@ -70,12 +86,19 @@ class Sample:
         y, x = divmod(index, self.width)
         row, col = self.row0 + y, self.col0 + x
         west, south, east, north = self.bounds
-        return {
-            "id": cell_id(row, col),
+        key = cell_id(row, col)
+        result = {
+            "id": key,
             "row": row, "col": col,
             "longitude": west + (x + 0.5) * (east - west) / self.width,
             "latitude": north - (y + 0.5) * (north - south) / self.height,
         }
+        if self.maxsss:
+            result["binarySource"] = (
+                "demo_derived" if key in self.demo_only else
+                "archived" if np.isfinite(self.values[0, y, x]) else "no_data"
+            )
+        return result
 
     def catalog(self) -> dict:
         return {
@@ -85,7 +108,13 @@ class Sample:
             "releaseId": self.dataset.release_id,
             "source": self.dataset.source.model_dump(),
             "dataVersion": self.data_version,
-            "policyVersion": POLICY_VERSION,
+            "policyVersion": self.policy_version,
+            "binaryCoverage": {
+                "thresholdTable": self.maxsss.thresholdTable,
+                "thresholdTableSha256": self.maxsss.thresholdTableSha256,
+                "archiveCellCount": self.maxsss.archiveCellCount,
+                "demoOnlyIndices": sorted(self.index_by_id[key] for key in self.demo_only),
+            } if self.maxsss else None,
             "baselinePeriod": self.dataset.baseline_period,
             "defaultSpeciesIds": self.dataset.default_species_ids,
             "defaultLayerId": self.dataset.default_layer_id,
@@ -106,16 +135,41 @@ class Sample:
         }
 
 
-def prepare_sample(dataset: Dataset, grid: Grid, values: np.ndarray, version: str) -> Sample:
+def prepare_sample(dataset: Dataset, grid: Grid, values: np.ndarray, version: str,
+                   profile: MaxSSSProfile | None = None) -> Sample:
     valid_counts = np.isfinite(values).sum(axis=(1, 2))
-    thresholds = np.array([
-        np.quantile(array[np.isfinite(array)].astype("float64"), 0.9, method="linear")
-        for array in values
-    ])
     index_by_id = {
         cell_id(grid.row0 + y, grid.col0 + x): y * grid.width + x
         for y in range(grid.height) for x in range(grid.width)
     }
+    demo_only = frozenset()
+    if version == JIAXING_S2_VERSION:
+        path = DEFAULT_MANIFEST.with_name("jiaxing-maxsss.json")
+        if path.is_file():
+            profile = MaxSSSProfile.model_validate_json(path.read_bytes())
+    if dataset.release_id == FULL_RELEASE_ID and profile is None:
+        raise ValueError("The 39-species release requires its verified maxSSS profile.")
+    if profile is not None:
+        ids = [s.id for s in dataset.species]
+        if profile.dataVersion != version or set(profile.thresholds) != set(ids):
+            raise ValueError("The maxSSS profile does not match the active S2 sample.")
+        thresholds = np.array([profile.thresholds[code] for code in ids], dtype=np.float64)
+        valid = np.isfinite(values)
+        if not ((thresholds >= 0) & (thresholds <= 1)).all() or not (valid == valid[0]).all():
+            raise ValueError("Invalid maxSSS cutoffs or inconsistent species masks.")
+        demo_only = frozenset(profile.demoOnlyCells)
+        valid_ids = {key for key, i in index_by_id.items() if valid[0].flat[i]}
+        if (len(demo_only) != len(profile.demoOnlyCells) or not demo_only <= valid_ids
+                or len(valid_ids) - len(demo_only) != profile.archiveCellCount):
+            raise ValueError("The binary coverage does not match the S2 grid.")
+        digest = sha256(profile.model_dump_json().encode()).hexdigest()[:12]
+        policy_version = f"s2_oof_maxsss_v1_{digest}"
+    else:
+        thresholds = np.array([
+            np.quantile(array[np.isfinite(array)].astype("float64"), 0.9, method="linear")
+            for array in values
+        ])
+        policy_version = "pilot_baseline_p90_v1"
     return Sample(
         dataset=dataset,
         species_index={item.id: i for i, item in enumerate(dataset.species)},
@@ -123,6 +177,7 @@ def prepare_sample(dataset: Dataset, grid: Grid, values: np.ndarray, version: st
         bounds=grid.bounds, row0=grid.row0, col0=grid.col0, data_version=version,
         layers={item.id: _raster_png(array) for item, array in zip(dataset.species, values, strict=True)},
         index_by_id=index_by_id,
+        policy_version=policy_version, maxsss=profile, demo_only=demo_only,
     )
 
 
@@ -134,4 +189,11 @@ def load_sample(directory: Path, manifest: Path = DEFAULT_MANIFEST) -> Sample:
 
 def load_prepared_sample(directory: Path) -> Sample:
     release, values = read_release(directory)
-    return prepare_sample(release.dataset, release.grid, values, release.data_version)
+    profile = None
+    if release.dataset.release_id == FULL_RELEASE_ID:
+        meta = json.loads((directory / "provenance.json").read_bytes())
+        path = directory / "maxsss.json"
+        if file_sha256(path) != meta["profileSha256"]:
+            raise ValueError("The threshold profile checksum disagrees with the release.")
+        profile = MaxSSSProfile.model_validate_json(path.read_bytes())
+    return prepare_sample(release.dataset, release.grid, values, release.data_version, profile)

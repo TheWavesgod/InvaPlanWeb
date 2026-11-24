@@ -11,6 +11,11 @@ data
 data-audit
 artifacts
 exports
+datasets/jiaxing-maxsss.json
+datasets/jiaxing-species-names.json
+**/*.npz
+**/invaplan-area-*.csv
+**/invaplan-area-*.geojson
 **/*.[Tt][Ii][Ff]
 **/*.[Tt][Ii][Ff][Ff]
 **/*.[Gg][Pp][Kk][Gg]

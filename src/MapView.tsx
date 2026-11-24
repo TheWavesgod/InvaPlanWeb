@@ -1,15 +1,12 @@
 import { useEffect, useRef } from 'react'
 import L from 'leaflet'
-import type { Bounds, Catalog, Cell, Run } from './api'
-import { cellBounds } from './api'
+import type { Catalog, Cell, Run } from './api'
+import { cellAtIndex, cellBounds } from './api'
+import { latLngBounds, useGridMap } from './useGridMap'
 import type { Translate } from './i18n'
 
 type Highlight = { cell: Cell; group: 'single' | 'tie' | 'common' | 'a' | 'b' }
 const groupColors = { single: '#f3a93c', tie: '#216ac1', common: '#15ad8e', a: '#e89b34', b: '#8264da' }
-
-function latLngBounds([west, south, east, north]: Bounds): L.LatLngBoundsExpression {
-  return [[south, west], [north, east]]
-}
 
 function scoreImage(catalog: Catalog, scores: Run['scores']) {
   const canvas = document.createElement('canvas')
@@ -38,46 +35,18 @@ export function MapView({ catalog, layer, climateRaster, run, highlights, select
   onPick: (row: number, col: number) => void
   locateRequest: number
 }) {
-  const host = useRef<HTMLDivElement>(null)
-  const map = useRef<L.Map | null>(null)
+  const { host, map } = useGridMap(catalog.grid, t, onPick)
   const rasters = useRef<L.LayerGroup | null>(null)
   const outlines = useRef<L.LayerGroup | null>(null)
-  const pick = useRef(onPick)
-  pick.current = onPick
-
   useEffect(() => {
-    const bounds = latLngBounds(catalog.grid.bounds)
-    const instance = L.map(host.current!, {
-      crs: L.CRS.EPSG4326, attributionControl: false, zoomControl: false, zoomSnap: 0.25, zoomDelta: 0.5,
-      minZoom: 5, maxZoom: 15, scrollWheelZoom: false, preferCanvas: true,
-    })
-    map.current = instance
+    const instance = map.current!
     rasters.current = L.layerGroup().addTo(instance)
     outlines.current = L.layerGroup().addTo(instance)
-    instance.fitBounds(bounds, { padding: [28, 30] })
-    L.control.scale({ imperial: false, position: 'bottomright' }).addTo(instance)
-    instance.on('click', ({ latlng }: L.LeafletMouseEvent) => {
-      const { row0, col0, width, height } = catalog.grid
-      const [west, south, east, north] = catalog.grid.bounds
-      const row = Math.floor((north - latlng.lat) / (north - south) * height)
-      const col = Math.floor((latlng.lng - west) / (east - west) * width)
-      if (row >= 0 && col >= 0 && row < height && col < width) pick.current(row + row0, col + col0)
-    })
-    const observer = new ResizeObserver(() => instance.invalidateSize())
-    observer.observe(host.current!)
     return () => {
-      observer.disconnect()
-      instance.remove()
-      map.current = null
+      rasters.current?.remove()
+      outlines.current?.remove()
     }
-  }, [catalog])
-
-  useEffect(() => {
-    const instance = map.current
-    if (!instance) return
-    const control = L.control.zoom({ zoomInTitle: t('zoomIn'), zoomOutTitle: t('zoomOut') }).addTo(instance)
-    return () => { control.remove() }
-  }, [catalog, t])
+  }, [catalog, map])
 
   useEffect(() => {
     const group = rasters.current
@@ -91,6 +60,14 @@ export function MapView({ catalog, layer, climateRaster, run, highlights, select
       L.imageOverlay(src, bounds, { interactive: false, className: 'grid-raster' }).addTo(group)
     }
     L.rectangle(bounds, { color: '#425c53', weight: 1, dashArray: '4 4', fill: false, interactive: false }).addTo(group)
+    if (layer === 'priority' && catalog.binaryCoverage) {
+      for (const index of catalog.binaryCoverage.demoOnlyIndices) {
+        const cell = cellAtIndex(catalog.grid, index)
+        L.rectangle(latLngBounds(cellBounds(catalog.grid, cell)), {
+          color: '#542052', weight: 1.5, dashArray: '2 2', fill: false, interactive: false,
+        }).addTo(group)
+      }
+    }
   }, [catalog, layer, climateRaster, run])
 
   useEffect(() => {

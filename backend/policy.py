@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .sample import POLICY_VERSION, Sample
+from .sample import Sample
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,7 @@ def build_run(sample: Sample, evidence: Evaluation, inputs: dict) -> dict:
     order = np.lexsort((eligible, -evidence.counts[eligible]))
     scores = np.where(ranked, 100 * evidence.counts / len(evidence.species_ids), np.nan)
     return {
-        "input": inputs, "dataVersion": sample.data_version, "policyVersion": POLICY_VERSION,
+        "input": inputs, "dataVersion": sample.data_version, "policyVersion": sample.policy_version,
         "releaseId": sample.dataset.release_id,
         "rankedCount": int(ranked.sum()),
         "incompleteCount": int((~evidence.complete & ~evidence.excluded).sum()),

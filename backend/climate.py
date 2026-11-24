@@ -1,11 +1,12 @@
 """Load the corrected Chapter 4 projections on the baseline sample grid."""
 
 from csv import DictReader
+import json
 from pathlib import Path
 
 import numpy as np
 
-from .datasets import data_version, file_sha256, read_rasters
+from .datasets import data_version, file_sha256, read_rasters, validate_values, Grid
 from .sample import Sample, _raster_png
 
 
@@ -14,6 +15,33 @@ SCENARIOS = {
     for ssp, label in (("ssp126", "SSP1-2.6"), ("ssp245", "SSP2-4.5"), ("ssp585", "SSP5-8.5"))
     for period in ("2041-2060", "2081-2100")
 }
+
+
+def render_scenario(sample: Sample, future: np.ndarray):
+    change = future - sample.values
+    return future, {
+        (kind, species.id): _raster_png(values[i], signed=kind == "change")
+        for kind, values in (("future", future), ("change", change))
+        for i, species in enumerate(sample.dataset.species)
+    }
+
+
+def load_prepared_climate(directory: Path, sample: Sample) -> dict:
+    meta = json.loads((directory / "provenance.json").read_bytes())
+    arrays = directory / "climate.npz"
+    if (meta["dataVersion"] != sample.data_version or meta["speciesIds"] != list(sample.species_index)
+            or file_sha256(arrays) != meta["climateSha256"]):
+        raise ValueError("Climate layers do not match the release manifest.")
+    grid = Grid(bounds=sample.bounds, row0=sample.row0, col0=sample.col0, width=sample.width, height=sample.height)
+    with np.load(arrays, allow_pickle=False) as archive:
+        if set(archive.files) != set(SCENARIOS):
+            raise ValueError("Expected all six climate scenarios in the prepared release.")
+        scenarios = {}
+        for key in SCENARIOS:
+            future = archive[key]
+            validate_values(sample.dataset, grid, future)
+            scenarios[key] = render_scenario(sample, future)
+        return scenarios
 
 
 def load_climate(root: Path, sample: Sample) -> dict:
@@ -59,10 +87,5 @@ def load_climate(root: Path, sample: Sample) -> dict:
         )
         if future_grid != grid:
             raise ValueError(f"Climate grid does not match the baseline for {key}.")
-        change = future - baseline
-        scenarios[key] = (future, {
-            (kind, species.id): _raster_png(values[i], signed=kind == "change")
-            for kind, values in (("future", future), ("change", change))
-            for i, species in enumerate(sample.dataset.species)
-        })
+        scenarios[key] = render_scenario(sample, future)
     return scenarios

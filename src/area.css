@@ -1,0 +1,66 @@
+.area-workspace { max-width: 1460px; display: grid; gap: 14px; padding-bottom: 28px; }
+.area-workspace .page-head { margin-bottom: 0; }
+.area-workspace .page-head p { max-width: 900px; }
+.area-card, .area-controls, .area-method { padding: 17px 20px; }
+.area-card h2, .area-method summary { font-size: 17px; font-weight: 700; line-height: 1.4; }
+.area-card h3 { font-size: 13px; margin: 18px 0 6px; }
+.area-card-head, .area-exports, .area-controls, .area-map-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.area-card-head { justify-content: space-between; }
+.area-controls, .area-map-controls { align-items: flex-end; gap: 10px 16px; }
+.area-controls label, .area-map-controls label { display: grid; gap: 5px; min-width: 0; font-size: 12px; font-weight: 650; }
+.area-controls select, .area-map-controls select { width: 100%; background: var(--paper); border: 1px solid #c8d6c7; color: var(--ink); padding: 7px 24px 7px 9px; border-radius: 5px; min-width: 0; font-size: 13px; }
+.area-controls label:first-child { min-width: 115px; }
+.area-controls label:nth-child(2) { min-width: 175px; }
+.area-map-controls { margin-top: 12px; }
+.area-map-controls label:first-child { flex: 1 1 165px; }
+.area-map-controls label:nth-child(2) { flex: 1.5 1 170px; }
+.area-map-controls label:nth-child(3) { flex: 1 1 95px; }
+.area-map-controls select:disabled { color: var(--muted); background: #f3f5ef; }
+.area-table-wrap { overflow-x: auto; margin-top: 12px; }
+.area-table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+.area-table th, .area-table td { padding: 8px; border-bottom: 1px solid var(--line); }
+.area-table th { text-align: start; font-weight: 600; }
+.area-table thead th { color: #486254; background: #eef3e9; font-size: 12px; }
+.area-table thead th:not(:first-child), .area-table td, .area-table thead tr:nth-child(2) th { text-align: end; }
+.area-summary td { font-size: 17px; font-weight: 650; }
+.area-summary th:first-child { width: 27%; }
+.area-note { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 8px 0 0; }
+.area-layout { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(295px, 1fr); gap: 14px; align-items: start; }
+.area-map-column { min-width: 0; display: grid; gap: 14px; }
+.area-map-panel { min-width: 0; }
+.area-map-layers { display: grid; }
+.area-map-layers > * { grid-area: 1 / 1; }
+.area-map-layers .area-status { align-self: start; justify-self: start; }
+.area-layer-loading { visibility: hidden; }
+.area-map-panel .map-wrap { min-height: clamp(340px, 42vw, 540px); }
+.area-cell-id { margin-top: 12px; font-size: 16px; font-weight: 650; font-family: ui-monospace, monospace; }
+.area-status { padding: 12px 16px; font-size: 13px; color: var(--muted); }
+.area-status button { margin-left: 5px; }
+.area-overlay-note { background: #edf3e8; color: #3c634b; padding: 8px 18px; font-size: 12px; }
+.area-totals { display: flex; flex-wrap: wrap; gap: 9px 20px; margin: 12px 0 0; }
+.area-totals dt { font-size: 12px; color: var(--muted); }
+.area-totals dd { margin: 3px 0 0; font-weight: 650; font-variant-numeric: tabular-nums; }
+.area-controls .area-budget-totals { margin: 0 0 0 auto; gap: 8px 25px; align-self: center; }
+.area-partial { display: block; font-size: 10px; color: #74551c; }
+.area-drivers { list-style: none; margin: 0; padding: 0; max-height: 180px; overflow-y: auto; }
+.area-drivers li { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--line); padding: 4px 0; }
+.area-drivers button { text-align: start; font-size: 12px; }
+.area-drivers span { color: var(--muted); font-size: 11px; }
+.area-projections th, .area-projections td { padding: 6px; font-size: 12px; }
+.area-heldout { background: #f1f5ea; }
+.area-method summary { cursor: pointer; }
+.area-method dl { display: grid; gap: 13px; margin: 14px 0 0; max-width: 1050px; }
+.area-method dt { font-size: 13px; font-weight: 700; }
+.area-method dd { color: var(--muted); line-height: 1.6; margin: 3px 0 0; font-size: 13px; }
+@media (max-width: 850px) {
+  .area-layout { grid-template-columns: minmax(0, 1fr); }
+  .area-controls .area-budget-totals { margin-left: 0; }
+}
+@media (max-width: 550px) {
+  .area-card, .area-controls, .area-method { padding: 12px; }
+  .area-layout, .area-workspace, .area-map-column { gap: 10px; }
+  .area-table th, .area-table td { padding: 6px 4px; font-size: 12px; }
+  .area-summary td { font-size: 14px; }
+  .area-controls label { flex: 1 1 auto; }
+  .area-map-panel .map-wrap { min-height: 320px; }
+}

@@ -8,10 +8,11 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
-from .climate import SCENARIOS, load_climate
+from .area_comparison import load_area_comparison, router as area_comparison_router
+from .climate import SCENARIOS, load_climate, load_prepared_climate
 from .policy import build_run, evaluate, inspect_cell
 from .datasets import DEFAULT_MANIFEST
-from .sample import MAX_K, Sample, cell_id, load_prepared_sample, load_sample
+from .sample import FULL_RELEASE_ID, MAX_K, Sample, cell_id, load_prepared_sample, load_sample
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -29,11 +30,17 @@ async def lifespan(app: FastAPI):
     else:
         raise RuntimeError("Set INVAPLAN_RELEASE_DIR to an imported release or INVAPLAN_RASTER_DIR to a TIFF directory.")
     climate_dir = os.environ.get("INVAPLAN_CLIMATE_DIR")
-    app.state.climate = load_climate(Path(climate_dir), app.state.sample) if climate_dir else {}
+    if release_dir and app.state.sample.dataset.release_id == FULL_RELEASE_ID:
+        app.state.climate = load_prepared_climate(Path(release_dir), app.state.sample)
+        app.state.area_comparison = load_area_comparison(Path(release_dir), app.state.sample, app.state.climate)
+    else:
+        app.state.climate = load_climate(Path(climate_dir), app.state.sample) if climate_dir else {}
+        app.state.area_comparison = None
     yield
 
 
 app = FastAPI(title="InvaPlan pilot", lifespan=lifespan)
+app.include_router(area_comparison_router)
 
 
 class RunInput(BaseModel):
@@ -53,6 +60,7 @@ class RunInput(BaseModel):
 def catalog(request: Request):
     return {
         **request.app.state.sample.catalog(),
+        "hasAreaComparison": request.app.state.area_comparison is not None,
         "climateScenarios": [SCENARIOS[key] for key in request.app.state.climate],
     }
 

@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode } from 'react'
 import { cellAtIndex, request } from './api'
 import type { Catalog, Cell, Detail, Input, Run } from './api'
 import { MapView } from './MapView'
+import { AreaComparison } from './AreaComparison'
 import { exportDecision } from './export'
 import type { Adjustment, Decision, WorkItem } from './export'
 import { createTranslator, languageTags, localisedRegionName, requestFailure } from './i18n'
@@ -114,7 +115,23 @@ function Workspace({ catalog, language, t, languageControl }: {
     }
   })
   const [slot, setSlot] = useState<Slot>('A')
+  const [speciesQuery, setSpeciesQuery] = useState('')
+  const query = speciesQuery.trim().toLowerCase()
+  const visibleSpecies = catalog.species.filter(s => [s.name, s.latin, s.id, s.nameEn]
+    .some(name => name?.toLowerCase().includes(query)))
   const [tab, setTab] = useState<Tab>('results')
+  const [areaOpen, setAreaOpen] = useState(location.hash === '#area-comparison')
+  const [areaVisited, setAreaVisited] = useState(areaOpen)
+  useEffect(() => {
+    const sync = () => {
+      const next = location.hash === '#area-comparison'
+      setAreaOpen(next)
+      if (next) setAreaVisited(true)
+    }
+    window.addEventListener('hashchange', sync)
+    return () => window.removeEventListener('hashchange', sync)
+  }, [])
+  const showArea = !!catalog.hasAreaComparison && areaOpen
   const [layer, setLayer] = useState(catalog.defaultLayerId ?? catalog.species[0].id)
   const [climate, setClimate] = useState('')
   const [showChange, setShowChange] = useState(false)
@@ -300,10 +317,18 @@ function Workspace({ catalog, language, t, languageControl }: {
     <header className="topbar"><div className="top-inner">
       <Brand t={t} />
       <div className="top-right">{languageControl}<span className="live"><i /> {t('realData')}</span>
-        <button className="quiet" onClick={() => setEvidenceOpen(true)}>{t('dataInfo')}</button>
+        {!showArea && <button className="quiet" onClick={() => setEvidenceOpen(true)}>{t('dataInfo')}</button>}
       </div>
-    </div></header>
-    <main className="workspace">
+    </div>
+    {catalog.hasAreaComparison && <nav className="workspace-modes" aria-label={t('areaModeNav')}>
+      <a href="#survey" aria-current={!showArea ? 'page' : undefined}>{t('worklist')}</a>
+      <a href="#area-comparison" aria-current={showArea ? 'page' : undefined}>{t('areaModeTitle')}</a>
+    </nav>}
+    </header>
+    {catalog.hasAreaComparison && areaVisited && <div hidden={!showArea}>
+      <AreaComparison catalog={catalog} language={language} t={t} />
+    </div>}
+    <main className="workspace" hidden={showArea}>
       <section className="page-head">
         <div><div className="eyebrow"><span className="line" /> {t('eyebrow')}</div>
           <h1>{t('title')}</h1>
@@ -333,10 +358,15 @@ function Workspace({ catalog, language, t, languageControl }: {
                 onClick={() => changeDraft({ ...draft, speciesIds: draft.speciesIds.length === catalog.species.length ? [] : catalog.species.map(s => s.id) })}>
                 {draft.speciesIds.length === catalog.species.length ? t('clear') : t('selectAll')}
               </button></div>
-              <div className="species-list">{catalog.species.map(item => <label className="species-option" key={item.id}>
+              <input className="species-search" type="search" aria-label={t('findSpecies')} placeholder={t('findSpecies')}
+                value={speciesQuery} onChange={e => setSpeciesQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') e.preventDefault() }} />
+              <p className="micro species-count">{t('selectedSpecies', { count: draft.speciesIds.length, total: catalog.species.length })}</p>
+              <div className="species-list">{visibleSpecies.map(item => <label className="species-option" key={item.id}>
                 <input type="checkbox" checked={draft.speciesIds.includes(item.id)} onChange={() => toggleSpecies(item.id)} />
                 <span>{byName.get(item.id)}{language === 'zh' && <small lang="la">{item.latin}</small>}</span>{item.exploratory && <span className="tag warm" title={t('exploratoryTitle')}>{t('exploratory')}</span>}
               </label>)}</div>
+              {!visibleSpecies.length && <p className="micro" role="status">{t('noSpeciesMatch')}</p>}
             </section>
             <section className="section-block mode"><div className="field-heading"><span className="field-label">{t('analysisMode')}</span><span className="tag green">{t('baseline')}</span></div>
               <p>{t('baselineRanking')}</p>
@@ -374,6 +404,7 @@ function Workspace({ catalog, language, t, languageControl }: {
             {changeLayer ? <><span>≤−0.25</span><span className="ramp climate-change" /><span>≥+0.25</span></>
               : <><span className="ramp" /><span>{t('lowHigh')}</span></>}
             <span><i className="swatch masked" /> {displayLayer === 'priority' ? t('notScored') : t('notAssessed')}</span>
+            {catalog.binaryCoverage && displayLayer === 'priority' && <span><i className="swatch demo-derived" /> {t('demoDerived', { count: catalog.binaryCoverage.demoOnlyIndices.length })}</span>}
             {isComparing ? <><span><i className="swatch common"/> {t('common')}</span><span><i className="swatch picked"/> {t('onlyA')}</span><span><i className="swatch b-only"/> {t('onlyB')}</span></>
               : <><span><i className="swatch picked"/> {t('worklist')}</span>
                 {tiedCandidates.size > 0 && <span><i className="swatch tied"/> {t('ties')}</span>}</>}
@@ -404,7 +435,10 @@ function Workspace({ catalog, language, t, languageControl }: {
               {run.recommendations.length < draft.k && <p className="message warning">{t('belowLimit', { k: draft.k })}</p>}
               <div className="recommendations">{worklist.map((item, index) => <article className="result-item" key={item.id}>
                 <button className="cell-link" onClick={() => pickCell(item, true)}><span className="rank">{index + 1}</span><span>
-                  <strong>{shortId(item)}</strong><small>{item.c ? speciesNames(item.focusIds) : t('manualReview')}</small></span></button>
+                  <strong>{shortId(item)}</strong><small title={speciesNames(item.focusIds)}>
+                    {item.c > 5 ? t('thresholdCount', { count: item.c, total: run.input.speciesIds.length })
+                      : item.c ? speciesNames(item.focusIds) : t('manualReview')}
+                  </small></span></button>
                 <div className="item-right"><strong>{item.score?.toFixed(1) ?? '—'}</strong>
                   <button className="text-button subtle" onClick={() => openAdjustment('remove', item)} aria-label={t('removeCell', { cell: shortId(item) })}>{t('remove')}</button></div>
               </article>)}</div>
@@ -435,7 +469,9 @@ function Workspace({ catalog, language, t, languageControl }: {
                   <td>{byName.get(s.id)}</td><td>{decimal(detail.values[s.id])}</td><td>{decimal(catalog.thresholds[s.id].value)}</td>
                   <td>{!draft.speciesIds.includes(s.id) ? t('notSelected') : detail.values[s.id] == null ? t('missing') : detail.focusIds.includes(s.id) ? <span className="tag green">{t('focus')}</span> : t('belowThreshold')}</td>
                 </tr>)}</tbody></table>
-              <p className="micro">{t('thresholdNote')}</p>
+              <p className="micro">{t(catalog.binaryCoverage ? 'maxsssThresholdNote' : 'thresholdNote')}</p>
+              {detail.cell.binarySource === 'demo_derived' && <p className="message warning">{t('demoDerivedDetail')}</p>}
+              {detail.cell.binarySource === 'archived' && <p className="micro">{t('archivedDetail')}</p>}
               {activeClimate && detail.climateScenario === activeClimate.id && detail.futureValues && <>
                 <h3>{activeClimate.ssp} · {activeClimate.period}</h3>
                 <table className="detail-table"><thead><tr><th>{t('species')}</th><th>{t('futureSuitability')}</th><th>{t('changeFromBaseline')}</th></tr></thead>
@@ -509,7 +545,9 @@ function Workspace({ catalog, language, t, languageControl }: {
       <dl><dt>{t('spatialExtent')}</dt><dd>{t('extentNote')}</dd>
         <dt>{t('modelOutput')}</dt><dd>{t('modelNote')}</dd>
         <dt>{t('baselinePeriod')}</dt><dd>{catalog.baselinePeriod ?? t('periodPending')} · {t('nativeResolution', { resolution })}</dd>
-        <dt>{t('selectionMethod')}</dt><dd>{t('methodNote')}</dd>
+        <dt>{t('selectionMethod')}</dt><dd>{catalog.binaryCoverage
+          ? t('maxsssMethod', { archive: num.format(catalog.binaryCoverage.archiveCellCount), extra: num.format(catalog.binaryCoverage.demoOnlyIndices.length) })
+          : t('methodNote')}</dd>
         <dt>{t('evidenceGaps')}</dt><dd>{t('gapsNote')}</dd>
         {catalog.releaseId && <><dt>{t('dataRelease')}</dt><dd>{catalog.releaseId}</dd></>}
         {catalog.source && <><dt>{t('dataSource')}</dt><dd>{catalog.source[language]}</dd></>}

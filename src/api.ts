@@ -3,6 +3,7 @@ export type Species = { id: string; name: string; nameEn?: string; latin: string
 export type Grid = { bounds: Bounds; width: number; height: number; row0: number; col0: number }
 export type ClimateScenario = { id: string; ssp: string; period: string }
 export type Catalog = {
+  hasAreaComparison?: boolean
   name: string
   nameEn?: string
   regionId?: string
@@ -12,6 +13,12 @@ export type Catalog = {
   defaultLayerId?: string
   dataVersion: string
   policyVersion: string
+  binaryCoverage?: {
+    thresholdTable: string
+    thresholdTableSha256: string
+    archiveCellCount: number
+    demoOnlyIndices: number[]
+  } | null
   baselinePeriod: string | null
   species: Species[]
   grid: Grid
@@ -19,7 +26,8 @@ export type Catalog = {
   climateScenarios?: ClimateScenario[]
   maxK: number
 }
-export type Cell = { id: string; row: number; col: number; latitude: number; longitude: number }
+export type Cell = { id: string; row: number; col: number; latitude: number; longitude: number;
+  binarySource?: 'archived' | 'demo_derived' | 'no_data' }
 export type Input = { speciesIds: string[]; k: number; excludedCellIds: string[] }
 export type Recommendation = Cell & { score: number; c: number; focusIds: string[] }
 export type Run = {

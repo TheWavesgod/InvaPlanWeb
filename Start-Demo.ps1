@@ -1,6 +1,6 @@
 [CmdletBinding(DefaultParameterSetName = 'Release')]
 param(
-    [Parameter(ParameterSetName = 'Release')][string]$ReleaseDir = (Join-Path $PSScriptRoot 'data\jiaxing-sample'),
+    [Parameter(ParameterSetName = 'Release')][string]$ReleaseDir,
     [Parameter(Mandatory = $true, ParameterSetName = 'Raster')][string]$RasterDir,
     [string]$ClimateDir = "",
     [string]$PythonExe = "",
@@ -28,6 +28,12 @@ try {
         $env:INVAPLAN_RASTER_DIR = (Resolve-Path -LiteralPath $RasterDir).Path
     }
     else {
+        if (-not $ReleaseDir) {
+            $ReleaseDir = Join-Path $PSScriptRoot 'data\jiaxing-39'
+            if (-not (Test-Path -LiteralPath (Join-Path $ReleaseDir 'manifest.json') -PathType Leaf)) {
+                $ReleaseDir = Join-Path $PSScriptRoot 'data\jiaxing-sample'
+            }
+        }
         $env:INVAPLAN_RASTER_DIR = $null
         $env:INVAPLAN_RELEASE_DIR = (Resolve-Path -LiteralPath $ReleaseDir).Path
     }

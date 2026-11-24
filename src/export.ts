@@ -14,7 +14,7 @@ export type Decision = {
   confirmedAt: string
 }
 
-function download(name: string, contents: string, type: string) {
+export function download(name: string, contents: string, type: string) {
   const url = URL.createObjectURL(new Blob([contents], { type }))
   const anchor = document.createElement('a')
   anchor.href = url
@@ -23,7 +23,7 @@ function download(name: string, contents: string, type: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-function csvField(value: unknown) {
+export function csvField(value: unknown) {
   const text = String(value ?? '')
   const safe = typeof value === 'string' && /^[\s]*[=+\-@]/.test(text) ? "'" + text : text
   return '"' + safe.replaceAll('"', '""') + '"'

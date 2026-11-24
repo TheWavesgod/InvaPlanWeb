@@ -29,6 +29,11 @@ htmlcov/
 /data/
 /exports/
 /artifacts/
+/datasets/jiaxing-maxsss.json
+/datasets/jiaxing-species-names.json
+*.npz
+invaplan-area-*.csv
+invaplan-area-*.geojson
 invaplan-baseline-*.csv
 invaplan-baseline-*.geojson
 invaplan-baseline-*.json
