@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 import os
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request
@@ -10,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .area_comparison import load_area_comparison, router as area_comparison_router
 from .climate import SCENARIOS, load_climate, load_prepared_climate
-from .policy import build_run, evaluate, inspect_cell
+from .policy import build_run, evaluate, inspect_cell, shortlist_summary
 from .datasets import DEFAULT_MANIFEST
 from .sample import FULL_RELEASE_ID, MAX_K, Sample, cell_id, load_prepared_sample, load_sample
 
@@ -48,12 +49,39 @@ class RunInput(BaseModel):
     speciesIds: list[str] = Field(min_length=1)
     k: int = Field(strict=True, ge=1, le=MAX_K)
     excludedCellIds: list[str]
+    tieBreak: Literal["cell_id", "spatial_spread"] = "cell_id"
 
     def check_catalog(self, sample: Sample):
         if len(set(self.speciesIds)) != len(self.speciesIds) or any(i not in sample.species_index for i in self.speciesIds):
             raise HTTPException(422, "请选择互不重复的已登记物种。")
         if len(set(self.excludedCellIds)) != len(self.excludedCellIds) or any(i not in sample.index_by_id for i in self.excludedCellIds):
             raise HTTPException(422, "排除网格必须位于当前样例窗口，且编号不能重复。")
+
+
+class ShortlistInput(RunInput):
+    dataVersion: str
+    policyVersion: str
+    originalCellIds: list[str] = Field(max_length=MAX_K)
+    finalCellIds: list[str] = Field(max_length=MAX_K)
+
+
+@app.post("/api/shortlist/comparison")
+def compare_shortlist(inputs: ShortlistInput, request: Request):
+    sample: Sample = request.app.state.sample
+    inputs.check_catalog(sample)
+    if (inputs.dataVersion, inputs.policyVersion) != (sample.data_version, sample.policy_version):
+        raise HTTPException(409, "shortlist_version_mismatch")
+    evidence = evaluate(sample, inputs.speciesIds, inputs.excludedCellIds)
+    summaries = {}
+    for name, ids in (("original", inputs.originalCellIds), ("final", inputs.finalCellIds)):
+        if len(ids) > inputs.k or len(set(ids)) != len(ids):
+            raise HTTPException(422, "invalid_shortlist")
+        for key in ids:
+            i = sample.index_by_id.get(key)
+            if i is None or evidence.excluded[i] or not evidence.complete[i]:
+                raise HTTPException(422, "invalid_shortlist")
+        summaries[name] = shortlist_summary(sample, evidence, ids)
+    return summaries
 
 
 @app.get("/api/catalog")
@@ -87,7 +115,7 @@ def climate_layer(scenario: str, kind: str, species_id: str, request: Request):
 def run(inputs: RunInput, request: Request):
     sample: Sample = request.app.state.sample
     inputs.check_catalog(sample)
-    return build_run(sample, evaluate(sample, inputs.speciesIds, inputs.excludedCellIds), inputs.model_dump())
+    return build_run(sample, evaluate(sample, inputs.speciesIds, inputs.excludedCellIds), inputs.model_dump(exclude_unset=True))
 
 
 @app.post("/api/cells/{row}/{col}")

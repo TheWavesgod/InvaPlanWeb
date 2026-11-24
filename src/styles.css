@@ -80,6 +80,7 @@ input[type="range"] { width: 100%; margin: 3px 0; accent-color: var(--green); }
 .species-option small { display: block; font-size: 10px; font-weight: 400; color: var(--muted); font-style: italic; margin-top: 2px; }
 .species-option .tag { margin-left: auto; font-size: 9px; padding: 3px 5px; }
 .mode p, .micro { font-size: 11px; line-height: 1.55; color: var(--muted); }
+.mode select { width: 100%; padding: 7px; margin: 4px 0; border: 1px solid var(--line); border-radius: 5px; color: var(--ink); background: var(--paper); }
 .primary, .secondary { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: 6px; padding: 8px 11px; font-weight: 700; font-size: 12px; min-height: 34px; }
 .primary { color: white; background: #22664e; border: 1px solid #22664e; }
 .primary:not(:disabled):hover { background: #194e3c; }
@@ -152,6 +153,11 @@ input[type="range"] { width: 100%; margin: 3px 0; accent-color: var(--green); }
 .detail-table th, .detail-table td { padding: 5px 3px; border-bottom: 1px solid #e9ede5; }
 .detail-table th { color: var(--muted); background: #f4f6ef; }
 .detail-table .tag { padding: 2px 3px; font-size: 10px; }
+.shortlist-review { margin: 10px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; }
+.shortlist-review caption { text-align: left; font-size: 13px; font-weight: 650; padding-bottom: 6px; }
+.shortlist-review td { text-align: right; font-variant-numeric: tabular-nums; }
+.shortlist-review th:not(:first-child) { text-align: right; }
+.shortlist-review summary { cursor: pointer; font-size: 12px; padding: 3px 0; }
 .detail-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .difference { width: 100%; display: flex; justify-content: space-between; gap: 4px; border: 0; border-bottom: 1px solid #e9ede5; background: transparent; padding: 8px 2px; font-size: 11px; text-align: left; }
 .difference:hover { background: #eef3e9; }

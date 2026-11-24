@@ -1,5 +1,5 @@
 import { cellBounds } from './api'
-import type { Catalog, Cell, Recommendation, Run } from './api'
+import type { Catalog, Cell, Recommendation, Run, ShortlistComparison } from './api'
 
 type AdjustmentDetails = { cell: Cell; reason: string; timestamp: string }
 export type Adjustment = AdjustmentDetails & (
@@ -12,6 +12,7 @@ export type Decision = {
   worklist: WorkItem[]
   adjustments: Adjustment[]
   confirmedAt: string
+  shortlistComparison: ShortlistComparison
 }
 
 export function download(name: string, contents: string, type: string) {
@@ -30,6 +31,8 @@ export function csvField(value: unknown) {
 }
 
 export function exportDecision(format: 'json' | 'csv' | 'geojson', decision: Decision, catalog: Catalog) {
+  const { shortlistComparison, ...saved } = decision
+  const { original: before, final: after } = shortlistComparison
   const { scores, ...run } = decision.run
   const context = {
     region: catalog.name,
@@ -39,8 +42,17 @@ export function exportDecision(format: 'json' | 'csv' | 'geojson', decision: Dec
     baselinePeriod: catalog.baselinePeriod,
     dataVersion: run.dataVersion,
     policyVersion: run.policyVersion,
+    tieBreak: run.input.tieBreak ?? 'cell_id',
+    originalMedianNearestKm: before.medianNearestKm,
+    shortlistComparison,
     dataMode: 'real_sample_baseline',
     thresholds: Object.fromEntries(run.input.speciesIds.map(id => [id, catalog.thresholds[id]])),
+    ...(catalog.binaryCoverage && {
+      thresholdTable: catalog.binaryCoverage.thresholdTable,
+      thresholdTableSha256: catalog.binaryCoverage.thresholdTableSha256,
+      archiveCellCount: catalog.binaryCoverage.archiveCellCount,
+      demoOnlyCellCount: catalog.binaryCoverage.demoOnlyIndices.length,
+    }),
     confirmedAt: decision.confirmedAt,
   }
   const original = new Set<Recommendation['id']>(run.recommendations.map(item => item.id))
@@ -48,20 +60,27 @@ export function exportDecision(format: 'json' | 'csv' | 'geojson', decision: Dec
     const latest = decision.adjustments.filter(change => change.cell.id === cell.id).at(-1)
     return {
       cellId: cell.id, longitude: cell.longitude, latitude: cell.latitude, score: cell.score,
+      ...(cell.binarySource && { binarySource: cell.binarySource }),
       c: cell.c, n: run.input.speciesIds.length, focusSpecies: cell.focusIds.join(' / '),
       manual: !original.has(cell.id) || latest?.action === 'replace',
       replacedCellId: latest?.action === 'replace' ? latest.replacedCell.id : '',
       remark: latest?.reason ?? '',
       dataVersion: context.dataVersion, policyVersion: context.policyVersion, dataMode: context.dataMode,
+      tieBreak: context.tieBreak, originalMedianNearestKm: context.originalMedianNearestKm,
       releaseId: context.releaseId, regionId: context.regionId,
     }
   }
   const name = 'invaplan-baseline-' + decision.confirmedAt.replace(/[:.]/g, '-')
   if (format === 'json') {
-    download(name + '.json', JSON.stringify({ ...decision, run, context }, null, 2), 'application/json')
+    download(name + '.json', JSON.stringify({ ...saved, run, context }, null, 2), 'application/json')
   } else if (format === 'csv') {
     const items = decision.worklist.map((cell, index) => ({
       ...attributes(cell),
+      originalCellCount: before.cellCount, finalCellCount: after.cellCount,
+      originalCoveredSpeciesIds: before.coveredSpeciesIds.join(' / '), finalCoveredSpeciesIds: after.coveredSpeciesIds.join(' / '),
+      originalSpeciesCellCounts: JSON.stringify(before.speciesCellCounts), finalSpeciesCellCounts: JSON.stringify(after.speciesCellCounts),
+      finalMedianNearestKm: after.medianNearestKm,
+      originalDemoDerivedCellCount: before.demoDerivedCellCount, finalDemoDerivedCellCount: after.demoDerivedCellCount,
       originalRecommendationIds: index === 0 ? [...original].join(' / ') : '',
       adjustmentHistory: index === 0 ? JSON.stringify(decision.adjustments) : '',
     }))

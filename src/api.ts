@@ -28,8 +28,17 @@ export type Catalog = {
 }
 export type Cell = { id: string; row: number; col: number; latitude: number; longitude: number;
   binarySource?: 'archived' | 'demo_derived' | 'no_data' }
-export type Input = { speciesIds: string[]; k: number; excludedCellIds: string[] }
-export type Recommendation = Cell & { score: number; c: number; focusIds: string[] }
+export type TieBreak = 'cell_id' | 'spatial_spread'
+export type Input = { speciesIds: string[]; k: number; excludedCellIds: string[]; tieBreak?: TieBreak }
+export type Recommendation = Cell & { score: number; c: number; focusIds: string[]; nearestEarlierKm?: number }
+export type ShortlistSummary = {
+  cellCount: number
+  speciesCellCounts: Record<string, number>
+  coveredSpeciesIds: string[]
+  medianNearestKm: number | null
+  demoDerivedCellCount: number | null
+}
+export type ShortlistComparison = { original: ShortlistSummary; final: ShortlistSummary }
 export type Run = {
   input: Input
   releaseId?: string
@@ -39,6 +48,7 @@ export type Run = {
   incompleteCount: number
   excludedCount: number
   positiveCount: number
+  medianNearestKm?: number | null
   recommendations: Recommendation[]
   scores: (number | null)[]
 }

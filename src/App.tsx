@@ -4,6 +4,7 @@ import { cellAtIndex, request } from './api'
 import type { Catalog, Cell, Detail, Input, Run } from './api'
 import { MapView } from './MapView'
 import { AreaComparison } from './AreaComparison'
+import { ShortlistReview, useShortlistComparison } from './ShortlistReview'
 import { exportDecision } from './export'
 import type { Adjustment, Decision, WorkItem } from './export'
 import { createTranslator, languageTags, localisedRegionName, requestFailure } from './i18n'
@@ -22,8 +23,10 @@ type Scenario = {
 const blank = (draft: Input): Scenario => ({
   draft, run: null, worklist: [], adjustments: [], confirmedAt: null,
 })
+const inputKey = (input: Input) => JSON.stringify([input.k, input.speciesIds, input.excludedCellIds, input.tieBreak ?? 'cell_id'])
 const currentRun = (scenario: Scenario | undefined) =>
-  scenario?.run && JSON.stringify(scenario.draft) === JSON.stringify(scenario.run.input) ? scenario.run : null
+  scenario?.run && inputKey(scenario.draft) === inputKey(scenario.run.input) ? scenario.run : null
+const strategyLabel = (input: Input) => input.tieBreak === 'spatial_spread' ? 'spatialSpread' : 'gridOrder'
 const storeKey = 'invaplan.confirmed.baseline-v1'
 const languageKey = 'invaplan.language'
 
@@ -93,6 +96,7 @@ function Workspace({ catalog, language, t, languageControl }: {
   languageControl: ReactNode
 }) {
   const num = new Intl.NumberFormat(languageTags[language])
+  const planStorageKey = `${storeKey}.${catalog.releaseId}.${catalog.dataVersion}.${catalog.policyVersion}`
   const list = new Intl.ListFormat(languageTags[language])
   const regionName = language === 'en' && catalog.nameEn ? catalog.nameEn : localisedRegionName(catalog.name, language)
   const [west, south, east, north] = catalog.grid.bounds
@@ -104,7 +108,7 @@ function Workspace({ catalog, language, t, languageControl }: {
   const [slots, setSlots] = useState<Partial<Record<Slot, Scenario>>>(() => {
     const initial = { A: blank({ speciesIds: catalog.defaultSpeciesIds ?? catalog.species.map(item => item.id), k: 10, excludedCellIds: [] }) }
     try {
-      const stored = JSON.parse(localStorage.getItem(storeKey) ?? 'null') as Partial<Record<Slot, Scenario>> | null
+      const stored = JSON.parse(localStorage.getItem(planStorageKey) ?? localStorage.getItem(storeKey) ?? 'null') as Partial<Record<Slot, Scenario>> | null
       const compatible = (scenario?: Scenario) => scenario?.run?.dataVersion === catalog.dataVersion
         && scenario?.run?.policyVersion === catalog.policyVersion
         && (!scenario.run.releaseId || scenario.run.releaseId === catalog.releaseId) && !!scenario.confirmedAt
@@ -151,6 +155,7 @@ function Workspace({ catalog, language, t, languageControl }: {
   const scenario = slots[slot]!
   const { draft, worklist } = scenario
   const run = currentRun(scenario)
+  const review = useShortlistComparison(run, worklist)
   const a = currentRun(slots.A)
   const b = currentRun(slots.B)
   const isComparing = tab === 'compare' && !!a && !!b
@@ -253,7 +258,7 @@ function Workspace({ catalog, language, t, languageControl }: {
   function applyAdjustment(event: FormEvent) {
     event.preventDefault()
     if (!run || busy || !adjust || !reason.trim()) return
-    const details = { cell: adjust.item, reason: reason.trim(), timestamp: new Date().toISOString() }
+    const details = { cell: adjust.item, reason, timestamp: new Date().toISOString() }
     let next: WorkItem[]
     let record: Adjustment
     if (adjust.action === 'replace') {
@@ -261,7 +266,6 @@ function Workspace({ catalog, language, t, languageControl }: {
       if (!outgoing || !tiedCandidates.has(adjust.item.id) || adjust.item.score !== cutoff || worklist.length > draft.k) return
       next = worklist.map(item => item.id === outgoing.id ? adjust.item : item)
       record = { ...details, action: 'replace', replacedCell: outgoing }
-      setTab('results')
     } else {
       if (adjust.action === 'add' && (worklist.length >= draft.k || worklist.some(item => item.id === adjust.item.id))) return
       next = adjust.action === 'add'
@@ -272,16 +276,20 @@ function Workspace({ catalog, language, t, languageControl }: {
       ...previous, worklist: next, confirmedAt: null, adjustments: [...previous.adjustments, record],
     }))
     setAdjust(null)
+    setTab('results')
     setNotice(record.action === 'replace'
       ? { key: 'swapped', values: { incoming: shortId(record.cell), outgoing: shortId(record.replacedCell), count: next.length, k: draft.k } }
       : { key: 'adjusted' })
   }
   function confirm() {
-    if (!run || worklist.length === 0 || worklist.length > draft.k) return
+    if (!run || !review.comparison || worklist.length === 0 || worklist.length > draft.k) return
     const updated = { ...scenario, confirmedAt: new Date().toISOString() }
     try {
-      const saved = JSON.parse(localStorage.getItem(storeKey) ?? '{}')
-      localStorage.setItem(storeKey, JSON.stringify({ ...saved, [slot]: updated }))
+      const prior = JSON.parse(localStorage.getItem(planStorageKey) ?? localStorage.getItem(storeKey) ?? '{}')
+      const saved = Object.fromEntries(Object.entries(prior as Record<Slot, Scenario>).filter(([, value]) =>
+        value?.run?.dataVersion === catalog.dataVersion && value.run.policyVersion === catalog.policyVersion
+        && (!value.run.releaseId || value.run.releaseId === catalog.releaseId)))
+      localStorage.setItem(planStorageKey, JSON.stringify({ ...saved, [slot]: updated }))
       updateScenario(() => updated)
       setNotice({ key: 'saved', values: { slot } })
     } catch {
@@ -289,8 +297,8 @@ function Workspace({ catalog, language, t, languageControl }: {
     }
   }
   function download(format: 'csv' | 'geojson' | 'json') {
-    if (!run || !scenario.confirmedAt || !worklist.length) return
-    const decision: Decision = { run, worklist, adjustments: scenario.adjustments, confirmedAt: scenario.confirmedAt }
+    if (!run || !review.comparison || !scenario.confirmedAt || !worklist.length) return
+    const decision: Decision = { run, worklist, adjustments: scenario.adjustments, confirmedAt: scenario.confirmedAt, shortlistComparison: review.comparison }
     exportDecision(format, decision, { ...catalog, name: regionName })
   }
 
@@ -299,10 +307,11 @@ function Workspace({ catalog, language, t, languageControl }: {
     ...comparison.onlyA.map(item => ({ cell: item, group: 'a' as const })),
     ...comparison.onlyB.map(item => ({ cell: item, group: 'b' as const })),
   ] : (run ? [
-    ...Array.from(tiedCandidates.values(), candidate => ({ cell: candidate, group: 'tie' as const })),
+    ...(tab === 'ties' ? Array.from(tiedCandidates.values(), candidate => ({ cell: candidate, group: 'tie' as const })) : []),
     ...worklist.map(item => ({ cell: item, group: 'single' as const })),
   ] : [])
   const detailInList = detail && worklist.some(item => item.id === detail.cell.id)
+  const originalPick = run?.recommendations.find(item => item.id === detail?.cell.id)
   const detailIsTie = detail && tiedCandidates.has(detail.cell.id)
   const replaceable = worklist.filter(item => item.score === cutoff)
   const stale = !!scenario.run && !run
@@ -368,8 +377,13 @@ function Workspace({ catalog, language, t, languageControl }: {
               </label>)}</div>
               {!visibleSpecies.length && <p className="micro" role="status">{t('noSpeciesMatch')}</p>}
             </section>
-            <section className="section-block mode"><div className="field-heading"><span className="field-label">{t('analysisMode')}</span><span className="tag green">{t('baseline')}</span></div>
-              <p>{t('baselineRanking')}</p>
+            <section className="section-block mode"><div className="field-heading"><label className="field-label" htmlFor="tie-break">{t('tieBreak')}</label><span className="tag green">{t('baseline')}</span></div>
+              <select id="tie-break" value={draft.tieBreak ?? 'cell_id'} onChange={e => changeDraft({
+                ...draft, tieBreak: e.target.value === 'spatial_spread' ? 'spatial_spread' : 'cell_id',
+              })}>
+                <option value="cell_id">{t('gridOrder')}</option><option value="spatial_spread">{t('spatialSpread')}</option>
+              </select>
+              <p>{t(draft.tieBreak === 'spatial_spread' ? 'spreadHelp' : 'gridOrderHelp')}</p>
             </section>
             <button type="submit" className="primary run-button" disabled={!draft.speciesIds.length || busy}>{busy ? t('generating') : t('generate')} <Icon name="arrow"/></button>
           </fieldset>
@@ -407,7 +421,7 @@ function Workspace({ catalog, language, t, languageControl }: {
             {catalog.binaryCoverage && displayLayer === 'priority' && <span><i className="swatch demo-derived" /> {t('demoDerived', { count: catalog.binaryCoverage.demoOnlyIndices.length })}</span>}
             {isComparing ? <><span><i className="swatch common"/> {t('common')}</span><span><i className="swatch picked"/> {t('onlyA')}</span><span><i className="swatch b-only"/> {t('onlyB')}</span></>
               : <><span><i className="swatch picked"/> {t('worklist')}</span>
-                {tiedCandidates.size > 0 && <span><i className="swatch tied"/> {t('ties')}</span>}</>}
+                {tab === 'ties' && tiedCandidates.size > 0 && <span><i className="swatch tied"/> {t('ties')}</span>}</>}
           </div>
           <div className="map-footer"><span>{t('sourceResolution', { resolution })}</span><span>{t('nativeGridCount', { count: num.format(catalog.grid.width * catalog.grid.height) })}</span></div>
         </section>
@@ -429,6 +443,7 @@ function Workspace({ catalog, language, t, languageControl }: {
                 <div><strong>{num.format(run.rankedCount)}</strong><span>{t('evidenceComplete')}</span></div>
                 <div><strong>{num.format(run.incompleteCount)}</strong><span>{t('evidenceIncomplete')}</span></div></div>
               <p className="micro">{t('runSummary', { recommended: run.recommendations.length, adjustments: scenario.adjustments.length })}{run.excludedCount > 0 && <> · {t('exclusions', { count: run.excludedCount })}</>}</p>
+              <ShortlistReview review={review} speciesIds={run.input.speciesIds} names={byName} t={t}/>
               {tiedCandidates.size > 0 && <button className="tie-summary" onClick={() => setTab('ties')}>
                 <i className="swatch tied"/><span>{t('viewTies', { count: num.format(tiedCandidates.size) })}</span><Icon name="arrow" size={14}/>
               </button>}
@@ -460,6 +475,10 @@ function Workspace({ catalog, language, t, languageControl }: {
               <div className="explanation">{detail.excluded ? t('excludedCell')
                 : detail.missingIds.length ? t('missingPredictions', { species: speciesNames(detail.missingIds) })
                 : t('scoringExplanation', { count: detail.c, total: draft.speciesIds.length })}</div>
+              {originalPick && run?.input.tieBreak === 'spatial_spread' && <p className="micro">
+                {originalPick.nearestEarlierKm == null ? t('spreadSeed')
+                  : t('spreadDistance', { distance: originalPick.nearestEarlierKm.toFixed(2) })}
+              </p>}
               {a && b && <div className="micro">{t('planScores', {
                 a: a.scores[(detail.cell.row - catalog.grid.row0) * catalog.grid.width + detail.cell.col - catalog.grid.col0]?.toFixed(1) ?? '—',
                 b: b.scores[(detail.cell.row - catalog.grid.row0) * catalog.grid.width + detail.cell.col - catalog.grid.col0]?.toFixed(1) ?? '—',
@@ -504,6 +523,15 @@ function Workspace({ catalog, language, t, languageControl }: {
                 <div><strong>{comparison.onlyA.length}</strong><span>{t('onlyA')}</span></div><div><strong>{comparison.onlyB.length}</strong><span>{t('onlyB')}</span></div></div>
               <p className="micro">{t('compareLimits', { a: a.input.k, b: b.input.k })}</p>
               <p className="micro">{t('compareSpecies', { a: a.input.speciesIds.length, b: b.input.speciesIds.length })}</p>
+              <table className="detail-table plan-comparison">
+                <thead><tr><th scope="col">{t('planMetric')}</th><th scope="col">{t('plan', { slot: 'A' })}</th><th scope="col">{t('plan', { slot: 'B' })}</th></tr></thead>
+                <tbody>
+                  <tr><th scope="row">{t('tieBreak')}</th>{[a, b].map((plan, i) => <td key={i}>{t(strategyLabel(plan.input))}</td>)}</tr>
+                  <tr><th scope="row">{t('medianNearest')}</th>{[a, b].map((plan, i) => <td key={i}>{plan.medianNearestKm === undefined ? t('rerunForSpacing') : plan.medianNearestKm?.toFixed(2) ?? '—'}</td>)}</tr>
+                  {catalog.binaryCoverage && <tr><th scope="row">{t('demoDerivedCount')}</th>{[a, b].map((plan, i) => <td key={i}>{plan.recommendations.filter(item => item.binarySource === 'demo_derived').length}</td>)}</tr>}
+                </tbody>
+              </table>
+              <p className="micro">{t('spacingHelp')}</p>
               {[...comparison.onlyA.map(item => ({ ...item, label: t('onlyA') })), ...comparison.onlyB.map(item => ({ ...item, label: t('onlyB') }))].map(item =>
                 <button key={item.id} className="difference" onClick={() => pickCell(item, true)}><span>{shortId(item)}</span><span>{item.label} · {t('points', { score: item.score.toFixed(1) })}</span></button>)}
               {comparison.onlyA.length + comparison.onlyB.length === 0 && <p className="message success">{t('sameRecommendations')}</p>}
@@ -512,10 +540,10 @@ function Workspace({ catalog, language, t, languageControl }: {
               {a && <button className="secondary" onClick={copyForComparison}>{slots.B ? t('editB') : t('copyB')}</button>}</div>)}
           </div>
           <div className="result-footer">
-            <button className="secondary full" disabled={!run || !worklist.length || !!scenario.confirmedAt} onClick={confirm}>
+            <button className="secondary full" disabled={!run || !review.comparison || !worklist.length || !!scenario.confirmedAt} onClick={confirm}>
               <Icon name="check"/>{scenario.confirmedAt && run ? t('planConfirmed') : t('confirmPlan')}</button>
             <div className="export-row">{(['csv', 'geojson', 'json'] as const).map(format => <button key={format}
-              disabled={!run || !scenario.confirmedAt || !worklist.length} onClick={() => download(format)}><Icon name="download" size={13}/>{format === 'geojson' ? 'GeoJSON' : format.toUpperCase()}</button>)}</div>
+              disabled={!run || !review.comparison || !scenario.confirmedAt || !worklist.length} onClick={() => download(format)}><Icon name="download" size={13}/>{format === 'geojson' ? 'GeoJSON' : format.toUpperCase()}</button>)}</div>
           </div>
         </section>
       </div>

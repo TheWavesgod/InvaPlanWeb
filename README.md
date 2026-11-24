@@ -1,6 +1,6 @@
 # InvaPlan · 入侵植物优先调查区识别 / Priority Survey Areas for Invasive Plants
 
-本地交互原型。React 和 Leaflet 显示九种入侵植物的样例栅格，FastAPI 读取数据、汇总证据并计算巡查建议。
+本地交互原型。嘉兴案例支持研究中的全部 39 种入侵植物，默认全选，可搜索中文名、学名或物种编号并调整调查对象。React 和 Leaflet 显示地图，FastAPI 计算网格优先分与调查清单。
 
 ## 嘉兴 39 种版本 / Full Jiaxing release
 
@@ -41,6 +41,7 @@ uv pip install --python '.\.venv\Scripts\python.exe' --cache-dir .uv-cache -r re
 Docker 引擎就绪后，从项目根目录运行。Compose 将本地发布包只读挂载到容器。 / With a Docker engine running, start Compose from the repository root. It mounts the local release read-only.
 
 ```powershell
+$env:INVAPLAN_RELEASE_DIR = './data/jiaxing-39'
 docker compose up --build
 ```
 
@@ -58,7 +59,7 @@ pnpm build
 
 ## 未来情景 / Future scenarios
 
-用 `-ClimateDir` 指向本地 Chapter 4 科学发布目录。启动时校验清单、源文件校验和，以及与基准期样例的网格和值是否匹配。 / Point `-ClimateDir` at the local Chapter 4 scientific release. Startup checks the product manifest, raster checksums and the baseline window.
+39 种版本内置 11 月 20 日选定的情景窗口。以下命令复现早期九种样例使用的情景版本。 / The 39-species package includes the climate windows selected on 20 November. To reproduce the earlier nine-species climate release, use:
 
 ```powershell
 .\Start-Demo.ps1 -RasterDir .\data\current_S2_30s -ClimateDir 'K:\C4_PUBLICATION_MASTER\zenodo_release'
@@ -68,19 +69,32 @@ pnpm build
 
 ## 演示流程
 
-默认九物种全选。生成方案 A，点击清单项查看网格证据。蓝色网格与原始推荐末位同分，橙色网格属于当前工作清单。打开「同分候选」，可用一个蓝色网格替换清单中的同分网格，填写理由后清单数量保持不变。JSON 和 GeoJSON 保留完整原始推荐与人工调整，CSV 同时记录原始推荐编号和调整历史。复制为方案 B，改变数量上限，再生成一次。比较页会在同一张地图上用三种颜色标出交集、A 独有和 B 独有。工作清单支持带理由的移出和人工加入。确认后可导出 CSV、GeoJSON 或含完整决定的 JSON。已确认方案保存在当前浏览器，同一数据和规则版本下刷新可继续查看。
+调查工作台默认选中当前发布包指定的物种。生成方案 A，点击清单项查看网格证据。蓝色网格与原始推荐末位同分，橙色网格属于当前工作清单。打开「同分候选」，可用一个蓝色网格替换清单中的同分网格，填写理由后清单数量保持不变。JSON 和 GeoJSON 保留完整原始推荐与人工调整，CSV 同时记录原始推荐编号和调整历史。复制为方案 B，改变数量上限，再生成一次。比较页会在同一张地图上用三种颜色标出交集、A 独有和 B 独有。工作清单支持带理由的移出和人工加入。确认后可导出 CSV、GeoJSON 或含完整决定的 JSON。已确认方案保存在当前浏览器，同一数据和规则版本下刷新可继续查看。
 
 ## 数据与规则
 
 首版读取嘉兴周边的一个矩形窗口（东经 120.45° 至 121.25°、北纬 30.40° 至 31.05°），用原始网格行列编号保留可追溯性。参考范围为**样例矩形**，正式嘉兴边界待交接。输入是原始 30 角秒栅格的相对适宜度，基准时期随来源说明核实。源数据从外部目录只读打开。数据版本由所读窗口的数值、物种和网格元数据生成。
 
-`pilot_baseline_p90_v1` 对每个物种在样例窗口内的有效值计算线性插值 P90，将达到阈值（含等于）的物种计入优先分。所选物种均有有效值时，优先分为 `100 × 达到各自阈值的物种数 / 所选物种数`。所选物种缺失的网格标为证据不足。按分数降序、原始网格编号升序确定前 K 个正分候选。人工调整单独记录，清单遵守 K 上限。结果适用于演示巡查判断，科学解释和真实管理应用由研究者核定。
+调查分数为 `100 × 达到各自阈值（含等于）的物种数 / 所选物种数`。嘉兴 39 种数据包使用逐物种 maxSSS 阈值。通用样例使用窗口 P90。只有所有目标物种预测均有效、分数为正且未排除的网格才进入推荐清单。
+
+同分时默认按原始网格编号选点。选择「优先分散选点」后，先取最高分中编号最小的网格，再从剩余最高分网格中选取距已有点集最远的一格。距离相同按编号决定。
+
+比较两种规则时，先生成 A，复制条件为 B，只改同分方式，再生成 B。比较页显示原始推荐的空间重合、最近邻球面距离中位数及 demo 推算格数。距离按格心计算，单点方案的间距显示为「—」。确认后导出的 `tieBreak` 与 `originalMedianNearestKm` 记录生成规则与原始推荐的间距。
+
+A grid’s survey score is the percentage of selected species that meet their suitability thresholds. Only cells with valid predictions for every selected species can enter the shortlist.
+
+Set `tieBreak` to `cell_id` (default) or `spatial_spread`. Both prioritise higher scores. Spatial spread starts at the lowest ID among the highest scores, then resolves ties by maximising great-circle distance to the nearest previously selected site. Copy plan A to B to compare tie-breaks at the same survey limit.
 
 ## API 和实现入口
+
+在「调查清单」中新增、移除或替换网格后，可对照原始推荐与当前清单的物种覆盖、最近邻距离中位数和 demo 推算格数。展开逐物种明细可查看各物种在几格内达到阈值。少于两个地点时，间距显示为「—」。确认后 JSON 和 GeoJSON 的 `context.shortlistComparison` 以及 CSV 的 `original*` / `final*` 列保存同一组指标。
+
+The shortlist shows the original and edited lists side by side. Expand the species breakdown to inspect the number of cells meeting each selected species’ suitability cutoff. Confirm the list to include the same measures in the CSV, GeoJSON or JSON export.
 
 - `GET /api/catalog` 返回物种、窗口、数据版本和各物种门槛。
 - `GET /api/layers/{species_id}.png` 返回原生网格着色图。
 - `POST /api/runs` 以 `speciesIds`、`k`、`excludedCellIds` 计算方案。
+- `POST /api/shortlist/comparison` 使用当前数据、阈值和两份网格编号清单计算调整前后指标。
 - `POST /api/cells/{row}/{col}` 按同样条件查询网格证据。
 - `src/App.tsx` 连接页面状态与接口，`src/MapView.tsx` 负责地图交互。
 - `backend/datasets.py` 读取源清单、导入和验证本地发布包。`backend/sample.py` 从发布包生成门槛和图层，`backend/policy.py` 计算资格、分数与推荐。
