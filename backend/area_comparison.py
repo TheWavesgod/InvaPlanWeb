@@ -1,13 +1,18 @@
-"""Compare three fixed 39-species portfolios on the fractional Jiaxing city mask."""
+"""Compare three 39-species portfolios within each city's verified native support."""
+from collections import OrderedDict
 from dataclasses import dataclass
 from hashlib import file_digest, sha256
 import json
+import logging
 import math
-from pathlib import Path
-from typing import Literal
+from pathlib import Path, PureWindowsPath
+from threading import Lock
+from typing import Annotated, Literal
+from zipfile import BadZipFile
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .climate import SCENARIOS
 from .datasets import Grid
@@ -23,6 +28,65 @@ Holdout = Literal["ssp126", "ssp245", "ssp585"]
 BUDGETS = (5, 10, 20)
 STATES = ("persistent", "gain")
 router = APIRouter(prefix="/api/area-comparisons")
+logger = logging.getLogger(__name__)
+
+
+class IndexModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+
+
+Percentage = Annotated[float, Field(ge=0, le=100)]
+SpeciesCount = Annotated[int, Field(ge=0, le=39)]
+Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+Strategy = Literal["level", "change", "site"]
+
+
+class Metrics(IndexModel):
+    persistentPct: Percentage | None
+    gainPct: Percentage | None
+    gainSpecies: SpeciesCount
+
+
+class CityResult(IndexModel):
+    summary: dict[Strategy, Metrics] = Field(min_length=3)
+    eligibleGainSpecies: SpeciesCount
+
+    @model_validator(mode="after")
+    def check_counts(self):
+        for metrics in self.summary.values():
+            if (metrics.gainSpecies > self.eligibleGainSpecies
+                    or (metrics.gainPct is None) != (self.eligibleGainSpecies == 0)):
+                raise ValueError("City gain metrics disagree with the eligible species count.")
+        return self
+
+
+BudgetResults = Annotated[dict[Literal["5", "10", "20"], CityResult], Field(min_length=3)]
+
+
+class CityEntry(IndexModel):
+    cityId: str = Field(pattern=r"^[0-9]{6}$")
+    nameZh: str = Field(min_length=1)
+    nameEn: str = Field(min_length=1)
+    cellCount: int = Field(gt=0)
+    areaKm2: float = Field(gt=0)
+    file: str = Field(min_length=1)
+    sha256: Digest
+    supportSha256: Digest
+    results: dict[Holdout, BudgetResults] = Field(min_length=3)
+
+    def overview(self, budget, holdout):
+        return {
+            "cityId": self.cityId, "nameZh": self.nameZh, "nameEn": self.nameEn,
+            "cellCount": self.cellCount, "areaKm2": self.areaKm2, "budgetKm2": self.areaKm2 * budget / 100,
+            **self.results[holdout][str(budget)].model_dump(),
+        }
+
+
+class CityIndex(IndexModel):
+    schema_version: Literal[1] = Field(alias="schema")
+    releaseVersion: str
+    thresholdTableSha256: Digest
+    cities: list[CityEntry] = Field(min_length=1)
 
 
 def habitat_masks(baseline, future_min, cutoffs):
@@ -117,7 +181,7 @@ class AreaComparison:
         self.scenarios = meta["scenarios"]
         self.baseline, self.future, self.cutoffs = baseline, future, cutoffs
         self.folds, self.portfolios = {}, {}
-        common = {"version": version, "cityId": CITY_ID, "grid": grid.model_dump(mode="json"),
+        common = {"version": version, "cityId": meta["cityId"], "grid": grid.model_dump(mode="json"),
                   "indices": indices.tolist(), "areas": areas.tolist()}
         for holdout in HOLDOUTS:
             test = np.array([key.split("-", 1)[0] == holdout for key in self.scenarios])
@@ -151,7 +215,7 @@ class AreaComparison:
                 "future": {key: float(self.future[k, i, pos]) for k, key in enumerate(self.scenarios)}}
 
 
-def verify_grid(grid, indices, sample):
+def verify_grid(grid, indices, sample, city_id=CITY_ID):
     west, south, east, north = sample.bounds
     dx, dy = (east - west) / sample.width, (north - south) / sample.height
     left, top = west + (grid.col0 - sample.col0) * dx, north - (grid.row0 - sample.row0) * dy
@@ -165,26 +229,33 @@ def verify_grid(grid, indices, sample):
     y += grid.row0 - sample.row0
     x += grid.col0 - sample.col0
     overlap = (y >= 0) & (y < sample.height) & (x >= 0) & (x < sample.width)
-    if not overlap.any():
+    if city_id == CITY_ID and not overlap.any():
         raise ValueError("The Jiaxing city data must intersect the verified sample.")
     return overlap, y[overlap], x[overlap]
 
 
-def verify_city_support(grid, indices, areas):
+def verify_city_support(grid, indices, areas, expected=JIAXING_SUPPORT_SHA256):
     y, x = np.divmod(indices.astype(np.int64), grid.width)
     coordinates = np.column_stack((grid.row0 + y, grid.col0 + x)).astype("<i4")
-    if sha256(coordinates.tobytes()).hexdigest() != JIAXING_SUPPORT_SHA256:
-        raise ValueError("The native cells do not match the accepted Jiaxing municipal support.")
+    if sha256(coordinates.tobytes()).hexdigest() != expected:
+        raise ValueError("The native cells do not match the accepted municipal support.")
     if not np.allclose(areas, cell_areas(grid, indices), atol=1e-10, rtol=0):
         raise ValueError("Stored city cell areas disagree with WGS84 geometry.")
 
 
-def load_area_comparison(directory: Path, sample: Sample, climate: dict):
-    path = directory / f"area-{CITY_ID}.npz"
-    if sample.dataset.release_id != FULL_RELEASE_ID or not path.is_file():
-        return None
+def check_release(sample, climate):
+    if (sample.dataset.release_id != FULL_RELEASE_ID or sample.maxsss is None
+            or list(sample.species_index) != [f"PROD{i:04}" for i in range(1, 40)]
+            or set(climate) != set(SCENARIOS)):
+        raise ValueError("Area comparisons require the verified 39-species baseline, thresholds and climate.")
+
+
+def read_city(path, sample, climate, entry=None):
+    city_id = entry.cityId if entry else CITY_ID
     with path.open("rb") as stream:
         digest = file_digest(stream, "sha256").hexdigest()
+        if entry and digest != entry.sha256:
+            raise ValueError("City inputs disagree with the manifest SHA-256.")
         stream.seek(0)
         with np.load(stream, allow_pickle=False) as archive:
             meta = json.loads(archive["meta"].item())
@@ -192,41 +263,154 @@ def load_area_comparison(directory: Path, sample: Sample, climate: dict):
                 archive[key] for key in ("indices", "areas", "baseline", "future", "thresholds"))
     ids = list(sample.species_index)
     scenarios = meta["scenarios"]
-    if (sample.maxsss is None or meta["schema"] != 1 or meta["cityId"] != CITY_ID
-            or ids != [f"PROD{i:04}" for i in range(1, 40)] or ids != meta["speciesIds"]
+    threshold_digest = meta.get("provenance", {}).get("thresholdTableSha256", sample.maxsss.thresholdTableSha256)
+    if (meta["schema"] != 1 or meta["cityId"] != city_id or ids != meta["speciesIds"]
             or meta["releaseVersion"] != sample.data_version or len(scenarios) != 6
-            or set(scenarios) != set(SCENARIOS) or set(climate) != set(SCENARIOS)
+            or set(scenarios) != set(SCENARIOS) or threshold_digest != sample.maxsss.thresholdTableSha256
             or not np.array_equal(cutoffs, sample.thresholds)):
         raise ValueError("City inputs disagree with the verified 39-species release or its thresholds.")
     grid = Grid.model_validate(meta["grid"])
-    overlap, y, x = verify_grid(grid, indices, sample)
+    overlap, y, x = verify_grid(grid, indices, sample, city_id)
     if (areas.shape != indices.shape or not (np.isfinite(areas) & (areas > 0)).all()
             or baseline.shape != (len(ids), indices.size) or future.shape != (6, *baseline.shape)
             or any(a.dtype != np.float32 or not ((a >= 0) & (a <= 1)).all() for a in (baseline, future))
             or areas.dtype != np.float64 or cutoffs.dtype != np.float64):
         raise ValueError("City predictions and areas must be complete on shared support and use the declared scale.")
-    verify_city_support(grid, indices, areas)
+    expected_support = entry.supportSha256 if entry else JIAXING_SUPPORT_SHA256
+    verify_city_support(grid, indices, areas, expected_support)
+    if entry and (len(indices) != entry.cellCount or not math.isclose(
+            math.fsum(areas), entry.areaKm2, abs_tol=1e-7, rel_tol=0)):
+        raise ValueError("City cell count or area disagrees with the manifest.")
     if not np.array_equal(baseline[:, overlap], sample.values[:, y, x]) or any(
         not np.array_equal(future[k][:, overlap], climate[key][0][:, y, x]) for k, key in enumerate(scenarios)
     ):
         raise ValueError("Shared native cells disagree with the verified baseline or future release.")
     version = f"city-area-v1-{digest[:16]}"
-    return AreaComparison(meta, grid, indices, areas, baseline.astype(np.float64), future.astype(np.float64),
+    area = AreaComparison(meta, grid, indices, areas, baseline.astype(np.float64), future.astype(np.float64),
                           cutoffs, version)
+    if entry:
+        verify_results(area, entry)
+    return area, digest
+
+
+def verify_results(area, entry):
+    for (budget, holdout), run in area.portfolios.items():
+        expected = entry.results[holdout][str(budget)]
+        if expected.eligibleGainSpecies != run["eligibleGainSpecies"]:
+            raise ValueError("City eligible species count disagrees with the manifest.")
+        for strategy, metrics in expected.summary.items():
+            actual = run["summary"][strategy]
+            for key, value in metrics.model_dump().items():
+                if value == actual[key]:
+                    continue
+                if value is None or actual[key] is None or not math.isclose(value, actual[key], abs_tol=1e-9, rel_tol=0):
+                    raise ValueError("City portfolio summary disagrees with the manifest.")
+
+
+def load_area_comparison(directory: Path, sample: Sample, climate: dict):
+    """Open the legacy standalone Jiaxing package."""
+    path = directory / f"area-{CITY_ID}.npz"
+    if sample.dataset.release_id != FULL_RELEASE_ID or not path.is_file():
+        return None
+    check_release(sample, climate)
+    return read_city(path, sample, climate)[0]
+
+
+class CityCatalog:
+    def __init__(self, directory, entries, sample, climate):
+        self.sample, self.climate = sample, climate
+        self.entries = {}
+        self.paths = {}
+        self.cache = OrderedDict()
+        self.lock = Lock()
+        directory = directory.resolve(strict=True)
+        for entry in entries:
+            path = (directory / entry.file).resolve()
+            if (PureWindowsPath(entry.file).anchor or not path.is_relative_to(directory)
+                    or path.suffix.lower() != ".npz" or not path.is_file()):
+                raise ValueError(f"Missing or invalid relative city package path for {entry.cityId}.")
+            if entry.cityId in self.entries or path in self.paths.values():
+                raise ValueError("The city index repeats a city ID or package path.")
+            if entry.cityId == CITY_ID and entry.supportSha256 != JIAXING_SUPPORT_SHA256:
+                raise ValueError("Jiaxing municipal support disagrees with the archived native coordinates.")
+            self.entries[entry.cityId] = entry
+            self.paths[entry.cityId] = path
+
+    def overview(self, budget, holdout):
+        return {"budget": budget, "holdout": holdout,
+                "cities": [entry.overview(budget, holdout) for entry in self.entries.values()]}
+
+    def get(self, city_id):
+        with self.lock:
+            if city_id in self.cache:
+                self.cache.move_to_end(city_id)
+            else:
+                area, _ = read_city(self.paths[city_id], self.sample, self.climate, self.entries[city_id])
+                self.cache[city_id] = area
+                if len(self.cache) > 2:
+                    self.cache.popitem(last=False)
+            return self.cache[city_id]
+
+
+def load_area_catalog(directory: Path, sample: Sample, climate: dict, area_directory: Path | None = None):
+    if sample.dataset.release_id != FULL_RELEASE_ID:
+        return None
+    root = area_directory if area_directory is not None else directory
+    manifest = root / "area-cities.json"
+    if manifest.is_file():
+        check_release(sample, climate)
+        index = CityIndex.model_validate_json(manifest.read_bytes())
+        if (index.releaseVersion != sample.data_version
+                or index.thresholdTableSha256 != sample.maxsss.thresholdTableSha256):
+            raise ValueError("The city index belongs to a different release or threshold table.")
+        return CityCatalog(root, index.cities, sample, climate)
+    if area_directory is not None:
+        raise ValueError(f"INVAPLAN_AREA_DIR requires a city index at {manifest}.")
+    path = directory / f"area-{CITY_ID}.npz"
+    if not path.is_file():
+        return None
+    check_release(sample, climate)
+    area, digest = read_city(path, sample, climate)
+    run = area.comparison(10, "ssp585")
+    results = {holdout: {str(b): {key: area.comparison(b, holdout)[key] for key in ("summary", "eligibleGainSpecies")}
+                         for b in BUDGETS} for holdout in HOLDOUTS}
+    entry = CityEntry(cityId=CITY_ID, nameZh="嘉兴市", nameEn="Jiaxing", cellCount=len(run["indices"]),
+                      areaKm2=math.fsum(run["areas"]), file=path.name, sha256=digest,
+                      supportSha256=JIAXING_SUPPORT_SHA256, results=results)
+    catalog = CityCatalog(directory, [entry], sample, climate)
+    catalog.cache[CITY_ID] = area
+    return catalog
 
 
 def active_area(request, city_id):
-    area = request.app.state.area_comparison
-    if city_id != CITY_ID or area is None:
+    catalog = request.app.state.area_comparison
+    if catalog is None or city_id not in catalog.entries:
         raise HTTPException(404, "area_comparison_unavailable")
-    return area
+    try:
+        return catalog.get(city_id)
+    except (OSError, ValueError, KeyError, BadZipFile):
+        logger.exception("Unable to verify the city comparison package for %s", city_id)
+        raise HTTPException(503, "area_comparison_invalid") from None
+
+
+def check_budget(budget):
+    if budget not in BUDGETS:
+        raise HTTPException(422, "invalid_area_budget")
+
+
+@router.get("")
+def overview(request: Request, budget: int = 10, holdout: Holdout = "ssp585"):
+    check_budget(budget)
+    catalog = request.app.state.area_comparison
+    if catalog is None:
+        raise HTTPException(404, "area_comparison_unavailable")
+    return catalog.overview(budget, holdout)
 
 
 @router.get("/{city_id}")
 def compare(city_id: str, request: Request, budget: int = 10, holdout: Holdout = "ssp585"):
+    check_budget(budget)
     area = active_area(request, city_id)
-    if budget not in BUDGETS:
-        raise HTTPException(422, "invalid_area_budget")
     return area.comparison(budget, holdout)
 
 

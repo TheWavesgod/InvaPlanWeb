@@ -129,7 +129,7 @@ def selected_products(archive, selection, release, provenance):
     return products
 
 
-def prepare(archive, city, directory):
+def verified_inputs(archive, city, directory):
     archive = archive.resolve(strict=True)
     release, demo_values = read_release(directory)
     ids = [item.id for item in release.dataset.species]
@@ -139,7 +139,7 @@ def prepare(archive, city, directory):
     profile_path = directory / "maxsss.json"
     profile = MaxSSSProfile.model_validate_json(profile_path.read_bytes())
     climate_path = directory / "climate.npz"
-    if (release.dataset.release_id != FULL_RELEASE_ID or set(ids) != {f"PROD{i:04}" for i in range(1, 40)}
+    if (release.dataset.release_id != FULL_RELEASE_ID or ids != [f"PROD{i:04}" for i in range(1, 40)]
             or ids != provenance["speciesIds"] or release.data_version != provenance["dataVersion"]
             or any((s.scale, s.offset) != (1, 0) for s in release.dataset.species)
             or profile.dataVersion != release.data_version or set(profile.thresholds) != set(ids)
@@ -157,17 +157,31 @@ def prepare(archive, city, directory):
     if not np.all((thresholds >= 0) & (thresholds <= 1)):
         raise ValueError("Expected finite 0–1 maxSSS thresholds.")
     products = selected_products(archive, selection, release, provenance)
+    with np.load(climate_path, allow_pickle=False) as cache:
+        if set(cache.files) != set(SCENARIOS):
+            raise ValueError("Incomplete release climate data.")
+        demo_layers = {family: cache[family] for family in SCENARIOS}
+    demo_layers["baseline"] = demo_values
+    info = {
+        "releaseManifestSha256": file_sha256(directory / "manifest.json"),
+        "releaseProvenanceSha256": file_sha256(prov_path), "selection": SELECTION,
+        "selectionSha256": provenance["selectionSha256"], "thresholdTable": table.name,
+        "thresholdTableSha256": profile.thresholdTableSha256, "profileSha256": provenance["profileSha256"],
+        "sources": {family: {tid: {field: products[family, tid][1][field]
+                                   for field in ("product_id", "relative_path", "sha256")}
+                             for tid in ids} for family in ["baseline", *SCENARIOS]},
+    }
+    return release, ids, thresholds, products, demo_layers, info
+
+
+def prepare(archive, city, directory):
+    release, ids, thresholds, products, demo_layers, input_info = verified_inputs(archive, city, directory)
     grid, indices, areas, info = city_geometry(city, products["baseline", ids[0]][0], release.grid)
     dy = indices // grid.width + grid.row0 - release.grid.row0
     dx = indices % grid.width + grid.col0 - release.grid.col0
     overlap = (dx >= 0) & (dx < release.grid.width) & (dy >= 0) & (dy < release.grid.height)
     if not overlap.any():
         raise ValueError("Jiaxing support has no shared cells with the baseline release.")
-    with np.load(climate_path, allow_pickle=False) as cache:
-        if set(cache.files) != set(SCENARIOS):
-            raise ValueError("Incomplete release climate data.")
-        demo_layers = {family: cache[family] for family in SCENARIOS}
-    demo_layers["baseline"] = demo_values
 
     def extract(key):
         family, tid = key
@@ -203,16 +217,7 @@ def prepare(archive, city, directory):
     def stack(family):
         return np.stack([layers[family, tid] for tid in ids])
 
-    info.update({
-        "releaseManifestSha256": file_sha256(directory / "manifest.json"),
-        "releaseProvenanceSha256": file_sha256(prov_path), "selection": SELECTION,
-        "selectionSha256": provenance["selectionSha256"], "thresholdTable": table.name,
-        "thresholdTableSha256": profile.thresholdTableSha256, "profileSha256": provenance["profileSha256"],
-        "sharedReleaseCells": int(overlap.sum()),
-        "sources": {family: {tid: {field: products[family, tid][1][field]
-                                   for field in ("product_id", "relative_path", "sha256")}
-                             for tid in ids} for family in ["baseline", *SCENARIOS]},
-    })
+    info.update(input_info, sharedReleaseCells=int(overlap.sum()))
     meta = {"schema": 1, "releaseVersion": release.data_version, "cityId": CITY_ID,
             "speciesIds": ids, "scenarios": list(SCENARIOS), "grid": grid.model_dump(), "provenance": info}
     arrays = {"meta": np.asarray(json.dumps(meta, separators=(",", ":"))), "indices": indices, "areas": areas,

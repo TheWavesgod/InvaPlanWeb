@@ -1,6 +1,7 @@
 [CmdletBinding(DefaultParameterSetName = 'Release')]
 param(
     [Parameter(ParameterSetName = 'Release')][string]$ReleaseDir,
+    [Parameter(ParameterSetName = 'Release')][string]$AreaDir,
     [Parameter(Mandatory = $true, ParameterSetName = 'Raster')][string]$RasterDir,
     [string]$ClimateDir = "",
     [string]$PythonExe = "",
@@ -20,6 +21,7 @@ if (-not $PythonExe) {
 $priorRasterDir = $env:INVAPLAN_RASTER_DIR
 $priorReleaseDir = $env:INVAPLAN_RELEASE_DIR
 $priorClimateDir = $env:INVAPLAN_CLIMATE_DIR
+$priorAreaDir = $env:INVAPLAN_AREA_DIR
 Push-Location -LiteralPath $PSScriptRoot
 try {
     if ($ClimateDir) { $env:INVAPLAN_CLIMATE_DIR = (Resolve-Path -LiteralPath $ClimateDir).Path }
@@ -36,6 +38,17 @@ try {
         }
         $env:INVAPLAN_RASTER_DIR = $null
         $env:INVAPLAN_RELEASE_DIR = (Resolve-Path -LiteralPath $ReleaseDir).Path
+        if ($AreaDir) {
+            $env:INVAPLAN_AREA_DIR = (Resolve-Path -LiteralPath $AreaDir).Path
+        }
+        elseif (-not $env:INVAPLAN_AREA_DIR -and $env:LOCALAPPDATA -and
+                $env:INVAPLAN_RELEASE_DIR -eq (Join-Path $PSScriptRoot 'data\jiaxing-39') -and
+                -not (Test-Path -LiteralPath (Join-Path $ReleaseDir 'area-cities.json') -PathType Leaf)) {
+            $localArea = Join-Path $env:LOCALAPPDATA 'InvaPlan\area-cities'
+            if (Test-Path -LiteralPath (Join-Path $localArea 'area-cities.json') -PathType Leaf) {
+                $env:INVAPLAN_AREA_DIR = $localArea
+            }
+        }
     }
     & $PythonExe -B -m uvicorn backend.main:app --host 127.0.0.1 --port $Port
     if ($LASTEXITCODE -ne 0) { throw "The InvaPlan server exited with code $LASTEXITCODE." }
@@ -45,4 +58,5 @@ finally {
     $env:INVAPLAN_RASTER_DIR = $priorRasterDir
     $env:INVAPLAN_RELEASE_DIR = $priorReleaseDir
     $env:INVAPLAN_CLIMATE_DIR = $priorClimateDir
+    $env:INVAPLAN_AREA_DIR = $priorAreaDir
 }

@@ -1,5 +1,14 @@
 .area-workspace { max-width: 1460px; display: grid; gap: 14px; padding-bottom: 28px; }
 .area-workspace .page-head { margin-bottom: 0; }
+.area-back { margin-bottom: 8px; }
+.area-controls input[type="search"] { min-height: 34px; border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; color: var(--ink); background: var(--paper); }
+.area-directory-wrap { max-height: 66vh; margin-top: 10px; overflow: auto; }
+.area-directory { min-width: 880px; font-variant-numeric: tabular-nums; }
+.area-directory thead { position: sticky; top: 0; z-index: 2; background: var(--paper); }
+.area-directory tbody th { position: sticky; left: 0; background: var(--paper); }
+.area-directory :is(th, td) { white-space: nowrap; }
+.area-directory tbody td:nth-child(3n + 4) { border-left: 1px solid var(--line); }
+.area-directory tbody tr:focus-within { background: #fff5ed; }
 .area-workspace .page-head p { max-width: 900px; }
 .area-card, .area-controls, .area-method { padding: 17px 20px; }
 .area-card h2, .area-method summary { font-size: 17px; font-weight: 700; line-height: 1.4; }

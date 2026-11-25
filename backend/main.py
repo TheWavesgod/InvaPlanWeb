@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
-from .area_comparison import load_area_comparison, router as area_comparison_router
+from .area_comparison import load_area_catalog, router as area_comparison_router
 from .climate import SCENARIOS, load_climate, load_prepared_climate
 from .policy import build_run, evaluate, inspect_cell, shortlist_summary
 from .datasets import DEFAULT_MANIFEST
@@ -33,7 +33,10 @@ async def lifespan(app: FastAPI):
     climate_dir = os.environ.get("INVAPLAN_CLIMATE_DIR")
     if release_dir and app.state.sample.dataset.release_id == FULL_RELEASE_ID:
         app.state.climate = load_prepared_climate(Path(release_dir), app.state.sample)
-        app.state.area_comparison = load_area_comparison(Path(release_dir), app.state.sample, app.state.climate)
+        area_dir = os.environ.get("INVAPLAN_AREA_DIR")
+        app.state.area_comparison = load_area_catalog(
+            Path(release_dir), app.state.sample, app.state.climate, Path(area_dir) if area_dir else None,
+        )
     else:
         app.state.climate = load_climate(Path(climate_dir), app.state.sample) if climate_dir else {}
         app.state.area_comparison = None

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Catalog, Species } from './api'
 import { cellAtIndex, request } from './api'
@@ -6,14 +6,15 @@ import { AreaMap } from './AreaMap'
 import { exportArea } from './areaExport'
 import { areaBudgets, areaHoldouts, areaStrategies } from './areaTypes'
 import type {
-  AreaBudget, AreaCellDetail, AreaComposite, AreaHabitats, AreaHabitatState,
+  AreaBudget, AreaCellDetail, AreaCity, AreaComposite, AreaDirectory, AreaHabitats, AreaHabitatState,
   AreaHoldout, AreaResult, SpeciesArea,
 } from './areaTypes'
 import { languageTags, requestFailure } from './i18n'
 import type { Language, Message, Translate } from './i18n'
 import './area.css'
 
-const cityUrl = '/api/area-comparisons/330400'
+const directoryUrl = '/api/area-comparisons'
+const cityUrl = (id: string) => directoryUrl + '/' + encodeURIComponent(id)
 const strategyLabel = { level: 'areaLevel', change: 'areaChange', site: 'areaSite' } as const
 const pathwayLabel = { ssp126: 'areaSsp126', ssp245: 'areaSsp245', ssp585: 'areaSsp585' } as const
 const stateLabel = { persistent: 'areaPersistent', gain: 'areaGain' } as const
@@ -89,7 +90,7 @@ function CellEvidence({ result, index, catalog, focus, language, t, format, setF
   // The detail endpoint returns all drivers with any species chosen for numeric inspection.
   const evidenceId = focus || catalog.species[0]?.id
   const detailUrl = cell && evidenceId
-    ? cityUrl + '/cells/' + cell.row + '/' + cell.col + '?holdout=' + result.holdout + '&species_id=' + encodeURIComponent(evidenceId)
+    ? cityUrl(result.cityId) + '/cells/' + cell.row + '/' + cell.col + '?holdout=' + result.holdout + '&species_id=' + encodeURIComponent(evidenceId)
     : null
   const detail = useAreaRequest<AreaCellDetail>(detailUrl)
   const data = detail.data
@@ -146,16 +147,92 @@ function CellEvidence({ result, index, catalog, focus, language, t, format, setF
   </section>
 }
 
-export function AreaComparison({ catalog, language, t }: { catalog: Catalog; language: Language; t: Translate }) {
+type ViewProps = { catalog: Catalog; language: Language; t: Translate }
+const cityName = (city: AreaCity, language: Language) => language === 'zh' ? city.nameZh : city.nameEn
+
+export function AreaComparison({ catalog, language, t }: ViewProps) {
   const [budget, setBudget] = useState<AreaBudget>(10)
   const [holdout, setHoldout] = useState<AreaHoldout>('ssp585')
+  const [city, setCity] = useState<AreaCity | null>(null)
+  const [query, setQuery] = useState('')
+  const heading = useRef<HTMLHeadingElement>(null)
+  const previousCity = useRef<string | null>(null)
+  const [legacyCity, setLegacyCity] = useState(false)
+  const directory = useAreaRequest<AreaDirectory>(legacyCity ? null : directoryUrl + '?budget=' + budget + '&holdout=' + holdout)
+  // Earlier Jiaxing servers expose the city routes but return a plain 404 for the directory.
+  useEffect(() => {
+    if (directory.error?.key === 'httpFailure' && directory.error.values?.status === 404) setLegacyCity(true)
+  }, [directory.error])
+  const detailId = city?.cityId ?? (legacyCity ? '330400' : null)
+  const cities = directory.data?.cities
+  const needle = query.trim().toLowerCase()
+  const visible = cities?.filter(row => [row.nameEn, row.nameZh, row.cityId].some(name => name.toLowerCase().includes(needle)))
+  const compact = new Intl.NumberFormat(languageTags[language], {maximumFractionDigits: 1})
+  const pct = (n: number | null) => n === null ? '—' : compact.format(n)
+  useEffect(() => {
+    if (city) heading.current?.focus()
+    else if (previousCity.current && cities) {
+      document.getElementById('area-city-' + previousCity.current)?.focus()
+      previousCity.current = null
+    }
+  }, [city, cities])
+  return <main className="workspace area-workspace">
+    <header className="page-head"><div>
+      {city && <button type="button" className="text-button area-back" onClick={() => setCity(null)}>{t('areaBack')}</button>}
+      <h1 ref={heading} tabIndex={-1}>{detailId ? t('areaTitle', {city: city ? cityName(city, language) : t('areaLegacyCity')}) : t('areaDirectoryTitle')}</h1>
+      <p>{t(detailId ? 'areaIntro' : 'areaDirectoryHelp')}</p>
+    </div></header>
+    <div className="panel area-controls">
+      <label>{t('areaBudget')}<select value={budget} onChange={event => setBudget(Number(event.target.value) as AreaBudget)}>
+        {areaBudgets.map(value => <option key={value} value={value}>{value}%</option>)}
+      </select></label>
+      <label>{t('areaHoldout')}<select value={holdout} onChange={event => setHoldout(event.target.value as AreaHoldout)}>
+        {areaHoldouts.map(value => <option key={value} value={value}>{t(pathwayLabel[value])}</option>)}
+      </select></label>
+      {!detailId && <label>{t('areaFindCity')}<input type="search" value={query} onChange={e => setQuery(e.target.value)} /></label>}
+    </div>
+    {detailId ? <CityDetail key={detailId} cityId={detailId} budget={budget} holdout={holdout} catalog={catalog} language={language} t={t}/>
+      : !cities ? <RequestStatus t={t} error={directory.error} retry={directory.retry}>{t('areaLoading')}</RequestStatus>
+      : <section className="panel area-card">
+        <h2>{t('areaCitiesShown', {count: visible?.length ?? 0, total: cities.length})}</h2>
+        {visible?.length ? <>
+          <p className="area-note">{t('areaTableHelp')}</p>
+          <div className="area-table-wrap area-directory-wrap" role="region" aria-label={t('areaDirectoryTitle')} tabIndex={0}>
+            <table className="area-table area-directory">
+              <thead><tr>
+                <th rowSpan={2} scope="col">{t('areaCity')}</th>
+                <th rowSpan={2} scope="col">{t('areaValidCity')} (km²)</th>
+                <th rowSpan={2} scope="col">{t('areaBudgetAllocation')} (km²)</th>
+                {areaStrategies.map(s => <th key={s} colSpan={3} scope="colgroup">{t(strategyLabel[s])}</th>)}
+              </tr><tr>{areaStrategies.flatMap(s => [
+                <th key={s+'p'} scope="col">{t('areaPersistent')} (%)</th>,
+                <th key={s+'g'} scope="col">{t('areaGain')} (%)</th>,
+                <th key={s+'s'} scope="col">{t('areaSpeciesCount')}</th>,
+              ])}</tr></thead>
+              <tbody>{visible.map(row => <tr key={row.cityId}>
+                <th scope="row"><button type="button" id={'area-city-'+row.cityId} className="text-button"
+                  onClick={() => { previousCity.current = row.cityId; setCity(row) }}>{cityName(row, language)}</button></th>
+                <td>{compact.format(row.areaKm2)}</td><td>{compact.format(row.budgetKm2)}</td>
+                {areaStrategies.flatMap(s => [<td key={s+'p'}>{pct(row.summary[s].persistentPct)}</td>,
+                  <td key={s+'g'}>{pct(row.summary[s].gainPct)}</td>,
+                  <td key={s+'s'}>{row.summary[s].gainSpecies ?? '—'} / {row.eligibleGainSpecies ?? '—'}</td>])}
+              </tr>)}</tbody>
+            </table>
+          </div></> : <p role="status">{t('areaNoCity')}</p>}
+      </section>}
+  </main>
+}
+
+function CityDetail({ catalog, language, t, cityId, budget, holdout }: ViewProps & {
+  cityId: string; budget: AreaBudget; holdout: AreaHoldout
+}) {
   const [composite, setComposite] = useState<AreaComposite>('level')
   const [focus, setFocus] = useState('')
   const [habitatState, setHabitatState] = useState<AreaHabitatState>('gain')
   const [selected, setSelected] = useState<number | null>(null)
-  const comparison = useAreaRequest<AreaResult>(cityUrl + '?budget=' + budget + '&holdout=' + holdout)
+  const comparison = useAreaRequest<AreaResult>(cityUrl(cityId) + '?budget=' + budget + '&holdout=' + holdout)
   const overlay = useAreaRequest<AreaHabitats>(focus
-    ? cityUrl + '/species/' + encodeURIComponent(focus) + '?holdout=' + holdout : null)
+    ? cityUrl(cityId) + '/species/' + encodeURIComponent(focus) + '?holdout=' + holdout : null)
   const result = comparison.data
   const cityArea = result?.areas.reduce((sum, value) => sum + value, 0)
   const focusSpecies = catalog.species.find(species => species.id === focus)
@@ -169,21 +246,12 @@ export function AreaComparison({ catalog, language, t }: { catalog: Catalog; lan
     ['areaCompositeMethod', 'areaCompositeText'], ['areaSiteMethod', 'areaSiteText'],
   ] as const
 
-  return <main className="workspace area-workspace">
-    <header className="page-head"><div><h1>{t('areaTitle')}</h1><p>{t('areaIntro')}</p></div></header>
-    <div className="panel area-controls">
-      <label>{t('areaBudget')}<select value={budget} onChange={event => setBudget(Number(event.target.value) as AreaBudget)}>
-        {areaBudgets.map(value => <option key={value} value={value}>{value}%</option>)}
-      </select></label>
-      <label>{t('areaHoldout')}<select value={holdout} onChange={event => setHoldout(event.target.value as AreaHoldout)}>
-        {areaHoldouts.map(value => <option key={value} value={value}>{t(pathwayLabel[value])}</option>)}
-      </select></label>
-      {result && cityArea !== undefined && <dl className="area-budget-totals area-totals">
+  return <>
+      {result && cityArea !== undefined && <dl className="panel area-card area-budget-totals area-totals">
         <div><dt>{t('areaBudgetAllocation')}</dt><dd>{areaFormat.format(cityArea * budget / 100)} km²</dd></div>
         <div><dt>{t('areaValidCity')}</dt><dd>{areaFormat.format(cityArea)} km²</dd></div>
         <div><dt>{t('areaValidCells')}</dt><dd>{areaFormat.format(result.indices.length)}</dd></div>
       </dl>}
-    </div>
 
     {!result ? <RequestStatus t={t} error={comparison.error} retry={comparison.retry}>{t('areaLoading')}</RequestStatus>
     : !result.indices.length ? <p className="area-status" role="status">{t('areaEmpty')}</p> : <>
@@ -242,5 +310,5 @@ export function AreaComparison({ catalog, language, t }: { catalog: Catalog; lan
     <details className="panel area-method"><summary>{t('areaMethod')}</summary>
       <dl>{methods.map(([title, body]) => <div key={title}><dt>{t(title)}</dt><dd>{t(body)}</dd></div>)}</dl>
     </details>
-  </main>
+  </>
 }

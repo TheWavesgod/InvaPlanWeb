@@ -2,22 +2,27 @@
 
 本地交互原型。嘉兴案例支持研究中的全部 39 种入侵植物，默认全选，可搜索中文名、学名或物种编号并调整调查对象。React 和 Leaflet 显示地图，FastAPI 计算网格优先分与调查清单。
 
-## 嘉兴 39 种版本 / Full Jiaxing release
+## 62 城等面积选址比较 / Equal-area comparison across 62 cities
 
-**等面积选址比较 / Equal-area comparison** 使用嘉兴行政边界内的共同有效网格。将经校验的 39 种数据包放在本机 `data/jiaxing-39/`。如需从私有归档生成数据包和市域比较文件，可在项目根目录运行以下命令。两个路径变量分别指向已授权访问的预测归档和市域裁切数据目录。
+打开「等面积选址比较」或访问首页的 `#area-comparison`。选择一个面积预算（5%、10% 或 20%）和一条留出评估的 SSP 路径。汇总表按**各城市自己的有效预测面积**计算预算。点城市名进入地图，选物种可查看三种策略覆盖和遗漏的持续或新增适生区。覆盖物种数的分母是该城在留出路径下有新增适生区的物种数。
+
+Open **Equal-area comparison** and select an area budget and a climate pathway to hold out. Each city allocates the same percentage of its own valid land area to each strategy. Open a city to inspect individual species, the underlying grid evidence and the areas covered or missed by the fixed selections. In the species-coverage column, the denominator counts species with newly suitable habitat in that city under the held-out pathway.
+
+从私有归档首次准备时，先按下节安装依赖。将 `INVAPLAN_ARCHIVE` 和 `INVAPLAN_CITY` 分别设为预测归档和市域数据目录。已有 `data/jiaxing-39/manifest.json` 时可跳过第一条导入命令。所有城市共用现有的 39 种模型输出。
 
 ```powershell
 .\.venv\Scripts\python.exe -B -m backend.prepare_jiaxing "$env:INVAPLAN_ARCHIVE" "$env:INVAPLAN_CITY" .\data\jiaxing-39
-.\.venv\Scripts\python.exe -B -m backend.prepare_area_comparison --archive "$env:INVAPLAN_ARCHIVE" --city "$env:INVAPLAN_CITY" --release .\data\jiaxing-39
+$areaDir = Join-Path $env:LOCALAPPDATA 'InvaPlan\area-cities'
+.\.venv\Scripts\python.exe -B -m backend.prepare_area_cities --archive "$env:INVAPLAN_ARCHIVE" --city "$env:INVAPLAN_CITY" --release .\data\jiaxing-39 --output "$areaDir"
 pnpm build
-.\Start-Demo.ps1 -ReleaseDir .\data\jiaxing-39
+.\Start-Demo.ps1 -ReleaseDir .\data\jiaxing-39 -AreaDir "$areaDir"
 ```
 
-有本地数据包后，可从工作台顶部打开「等面积选址比较」，或在首页地址后加 `#area-comparison`。数据包、逐物种阈值、导出和实算结果请保存在本地。
+这里的 Windows 输出目录位于本机用户目录，独立于 Git 仓库和 OneDrive 工作区。日常启动运行 `.\Start-Demo.ps1` 即可。九物种样例和已有的嘉兴单城数据包也可以单独使用。
 
 三个选址规则共用全部 39 种和同一面积预算。A1 使用其余两个 SSP、两个时期的多物种平均适宜度，A2 使用其相对基准期的变化。B 对各物种分别识别持续达标和新达标网格，按组内百分位排序，每格取其最高百分位。面积按原生格实际大小累计，最后一格按剩余额度计入。切换物种只改变证据图层与覆盖统计。留出情景的两个时期均达到物种阈值才计入未来适宜面积。
 
-The comparison uses the official Jiaxing city mask. To prepare it from authorised local data, set the two path variables above to the prediction archive and city data directory. With a prepared package, run the build and startup commands and open `#area-comparison`. Pick a 5%, 10% or 20% area budget. Select a species to inspect habitat covered or missed by the fixed portfolios. A withheld SSP evaluates the plans across both future periods. CSV contains coverage by species and strategy. GeoJSON records whole native cell polygons and the area credited to each strategy.
+To prepare the comparison locally, point the two environment variables above at the authorised prediction archive and city data directory. Skip the first import if the 39-species release is already present. The second command prepares the city index and bundles outside the checkout. For direct FastAPI startup, set `INVAPLAN_RELEASE_DIR` to the base release and `INVAPLAN_AREA_DIR` to the folder containing `area-cities.json`. CSV gives coverage by species and strategy. GeoJSON contains native cell polygons and the area credited to each strategy, including a fractional last cell where needed.
 
 ## 导入本地数据 / Import local data
 

@@ -1,4 +1,5 @@
 import json
+from hashlib import sha256
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -6,7 +7,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-from .area_comparison import load_area_comparison, verify_city_support
+from .area_comparison import AreaComparison, BUDGETS, HOLDOUTS, load_area_catalog, load_area_comparison, verify_city_support
+from .prepare_area_comparison import cell_areas
 from .climate import SCENARIOS, load_prepared_climate
 from .datasets import Grid, read_dataset, DEFAULT_MANIFEST
 from .main import app
@@ -85,6 +87,57 @@ class AreaComparisonTests(unittest.TestCase):
 
     def test_release_without_city_package_still_loads(self):
         self.assertIsNone(load_area_comparison(self.directory, self.sample, self.climate))
+
+    def make_city_index(self):
+        cities = []
+        # Disjoint native windows outside the original sample, with different species evidence.
+        for n, city_id in enumerate(("111111", "222222"), start=1):
+            south = 31 - n
+            grid = Grid(bounds=(120 + n, south, 121 + n, south + 0.1), height=1, width=10,
+                        row0=self.grid.row0 + (n - 1) * 10, col0=self.grid.col0 + n * 10)
+            meta = dict(self.meta, cityId=city_id, grid=grid.model_dump(mode="json"))
+            ix = self.arrays["indices"]
+            areas = cell_areas(grid, ix)
+            future = self.arrays["future"] if n == 1 else np.zeros_like(self.arrays["future"])
+            path = self.directory / f"area-{city_id}.npz"
+            np.savez(path, meta=json.dumps(meta), **dict(self.arrays, future=future, areas=areas))
+            calculated = AreaComparison(meta, grid, ix, areas, self.arrays["baseline"].astype(float),
+                                        future.astype(float), self.sample.thresholds, "fixture")
+            results = {h: {str(b): {k: calculated.comparison(b, h)[k] for k in ("summary", "eligibleGainSpecies")}
+                           for b in BUDGETS} for h in HOLDOUTS}
+            coords = np.column_stack((grid.row0 + ix // grid.width, grid.col0 + ix % grid.width)).astype("<i4")
+            cities.append(dict(cityId=city_id, nameZh=city_id, nameEn=city_id, cellCount=len(ix),
+                               areaKm2=float(areas.sum()), file=path.name, sha256=sha256(path.read_bytes()).hexdigest(),
+                               supportSha256=sha256(coords.tobytes()).hexdigest(), results=results))
+        index = dict(schema=1, releaseVersion=self.sample.data_version,
+                     thresholdTableSha256=self.sample.maxsss.thresholdTableSha256, cities=cities)
+        (self.directory / "area-cities.json").write_text(json.dumps(index), encoding="utf-8")
+        return index
+
+    def test_index_is_lazy_and_drilldown_is_city_specific(self):
+        self.make_city_index()
+        with patch("backend.area_comparison.read_city", side_effect=AssertionError("unexpected map read")):
+            collection = load_area_catalog(self.directory, self.sample, self.climate)
+            rows = collection.overview(10, "ssp585")["cities"]
+        self.assertEqual([r["eligibleGainSpecies"] for r in rows], [2, 0])
+        self.assertNotEqual(rows[0]["budgetKm2"], rows[1]["budgetKm2"])
+        self.assertIsNone(rows[1]["summary"]["site"]["gainPct"])
+        for row in rows:
+            run = collection.get(row["cityId"]).comparison(10, "ssp585")
+            self.assertEqual(run["cityId"], row["cityId"])
+            self.assertEqual(run["summary"], row["summary"])
+            for allocated in run["allocations"].values():
+                self.assertAlmostEqual(sum(allocated), row["budgetKm2"])
+        with self.assertRaises(KeyError):
+            collection.get("999999")
+
+    def test_changed_city_bundle_fails_before_map_display(self):
+        index = self.make_city_index()
+        collection = load_area_catalog(self.directory, self.sample, self.climate)
+        (self.directory / index["cities"][0]["file"]).write_bytes(b"fixture changed")
+        with self.assertRaisesRegex(ValueError, "SHA-256"):
+            collection.get("111111")
+        self.assertEqual(collection.get("222222").comparison(5, "ssp126")["cityId"], "222222")
 
 
 RELEASE_DIR = Path(__file__).resolve().parent.parent / "data/jiaxing-39"

@@ -84,9 +84,9 @@ export function App() {
   return <Workspace catalog={catalog} language={language} t={t} languageControl={languageControl} />
 }
 
-function Brand({ t }: { t: Translate }) {
+function Brand({ t, area = false }: { t: Translate; area?: boolean }) {
   return <div className="brand"><span className="brand-symbol"><Icon name="leaf" size={21}/></span>
-    <span>InvaPlan <small>{t('brandSubtitle')}</small></span></div>
+    <span>InvaPlan <small>{t(area ? 'areaBrand' : 'brandSubtitle')}</small></span></div>
 }
 
 function Workspace({ catalog, language, t, languageControl }: {
@@ -324,8 +324,8 @@ function Workspace({ catalog, language, t, languageControl }: {
 
   return <>
     <header className="topbar"><div className="top-inner">
-      <Brand t={t} />
-      <div className="top-right">{languageControl}<span className="live"><i /> {t('realData')}</span>
+      <Brand t={t} area={showArea} />
+      <div className="top-right">{languageControl}<span className="live"><i /> {t(showArea ? 'areaPrediction' : 'realData')}</span>
         {!showArea && <button className="quiet" onClick={() => setEvidenceOpen(true)}>{t('dataInfo')}</button>}
       </div>
     </div>

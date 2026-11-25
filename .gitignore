@@ -32,6 +32,8 @@ htmlcov/
 /datasets/jiaxing-maxsss.json
 /datasets/jiaxing-species-names.json
 *.npz
+area-cities.json
+.area-build-*/
 invaplan-area-*.csv
 invaplan-area-*.geojson
 invaplan-baseline-*.csv

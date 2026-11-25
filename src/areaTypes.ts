@@ -11,7 +11,22 @@ export type AreaHabitatState = 'persistent' | 'gain'
 
 export type HabitatArea = { persistentKm2: number; gainKm2: number }
 export type SpeciesArea = HabitatArea & Record<AreaStrategy, HabitatArea>
-export type AreaSummary = { persistentPct: number | null; gainPct: number | null; gainSpecies: number }
+export type AreaSummary = { persistentPct: number | null; gainPct: number | null; gainSpecies: number | null }
+export type AreaCity = {
+  cityId: string
+  nameZh: string
+  nameEn: string
+  cellCount: number
+  areaKm2: number
+  budgetKm2: number
+  summary: Record<AreaStrategy, AreaSummary>
+  eligibleGainSpecies: number | null
+}
+export type AreaDirectory = {
+  budget: AreaBudget
+  holdout: AreaHoldout
+  cities: AreaCity[]
+}
 export type AreaResult = {
   version: string
   cityId: string
@@ -22,7 +37,7 @@ export type AreaResult = {
   areas: number[]
   allocations: Record<AreaStrategy, number[]>
   summary: Record<AreaStrategy, AreaSummary>
-  eligibleGainSpecies: number
+  eligibleGainSpecies: number | null
   species: Record<string, SpeciesArea>
 }
 
