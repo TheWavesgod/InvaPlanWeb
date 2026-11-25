@@ -3,11 +3,13 @@ import type { ReactNode } from 'react'
 import type { Catalog, Species } from './api'
 import { cellAtIndex, request } from './api'
 import { AreaMap } from './AreaMap'
+import { CityCoverageMap, coverageColor, coverageMetricLabels, coveragePalette, noHabitatColor } from './CityCoverageMap'
+import type { CityFootprints, CoverageMetric } from './CityCoverageMap'
 import { exportArea } from './areaExport'
 import { areaBudgets, areaHoldouts, areaStrategies } from './areaTypes'
 import type {
   AreaBudget, AreaCellDetail, AreaCity, AreaComposite, AreaDirectory, AreaHabitats, AreaHabitatState,
-  AreaHoldout, AreaResult, SpeciesArea,
+  AreaHoldout, AreaResult, AreaStrategy, SpeciesArea,
 } from './areaTypes'
 import { languageTags, requestFailure } from './i18n'
 import type { Language, Message, Translate } from './i18n'
@@ -155,10 +157,15 @@ export function AreaComparison({ catalog, language, t }: ViewProps) {
   const [holdout, setHoldout] = useState<AreaHoldout>('ssp585')
   const [city, setCity] = useState<AreaCity | null>(null)
   const [query, setQuery] = useState('')
+  const [strategy, setStrategy] = useState<AreaStrategy>('site')
+  const [metric, setMetric] = useState<CoverageMetric>('gainPct')
   const heading = useRef<HTMLHeadingElement>(null)
   const previousCity = useRef<string | null>(null)
   const [legacyCity, setLegacyCity] = useState(false)
   const directory = useAreaRequest<AreaDirectory>(legacyCity ? null : directoryUrl + '?budget=' + budget + '&holdout=' + holdout)
+  const geography = useAreaRequest<CityFootprints>(legacyCity ? null : directoryUrl + '/footprints')
+  const heatmapOnly = geography.error?.key === 'areaUnavailable' ||
+    (geography.error?.key === 'httpFailure' && geography.error.values?.status === 404)
   // Earlier Jiaxing servers expose the city routes but return a plain 404 for the directory.
   useEffect(() => {
     if (directory.error?.key === 'httpFailure' && directory.error.values?.status === 404) setLegacyCity(true)
@@ -166,13 +173,17 @@ export function AreaComparison({ catalog, language, t }: ViewProps) {
   const detailId = city?.cityId ?? (legacyCity ? '330400' : null)
   const cities = directory.data?.cities
   const needle = query.trim().toLowerCase()
-  const visible = cities?.filter(row => [row.nameEn, row.nameZh, row.cityId].some(name => name.toLowerCase().includes(needle)))
+  const visible = cities?.filter(row => [row.nameEn, row.nameZh, row.cityId].some(name => name.toLowerCase().includes(needle))) ?? []
   const compact = new Intl.NumberFormat(languageTags[language], {maximumFractionDigits: 1})
   const pct = (n: number | null) => n === null ? '—' : compact.format(n)
+  function openCity(row: AreaCity, returnFocus: string) {
+    previousCity.current = returnFocus
+    setCity(row)
+  }
   useEffect(() => {
     if (city) heading.current?.focus()
     else if (previousCity.current && cities) {
-      document.getElementById('area-city-' + previousCity.current)?.focus()
+      document.getElementById(previousCity.current)?.focus()
       previousCity.current = null
     }
   }, [city, cities])
@@ -193,9 +204,50 @@ export function AreaComparison({ catalog, language, t }: ViewProps) {
     </div>
     {detailId ? <CityDetail key={detailId} cityId={detailId} budget={budget} holdout={holdout} catalog={catalog} language={language} t={t}/>
       : !cities ? <RequestStatus t={t} error={directory.error} retry={directory.retry}>{t('areaLoading')}</RequestStatus>
-      : <section className="panel area-card">
-        <h2>{t('areaCitiesShown', {count: visible?.length ?? 0, total: cities.length})}</h2>
-        {visible?.length ? <>
+      : <><section className="panel area-card city-coverage">
+        <div className="area-card-head">
+          <h2 id="city-coverage-title" tabIndex={-1}>{t('areaCoverageTitle')}</h2>
+          <div className="area-map-controls city-coverage-controls">
+            <label>{t('areaMetric')}<select value={metric} onChange={e => setMetric(e.target.value as CoverageMetric)}>
+              {(['gainPct', 'persistentPct'] as const).map(m => <option key={m} value={m}>{t(coverageMetricLabels[m])}</option>)}
+            </select></label>
+            {!heatmapOnly && <label>{t('areaMapStrategy')}<select value={strategy} onChange={e => setStrategy(e.target.value as AreaStrategy)}>
+              {areaStrategies.map(s => <option key={s} value={s}>{t(strategyLabel[s])}</option>)}
+            </select></label>}
+          </div>
+        </div>
+        <p className="area-note">{t(heatmapOnly ? 'areaHeatmapHelp' : 'areaCoverageHelp')}</p>
+        {visible.length ? <>
+          <div className="city-legend" aria-label={t(coverageMetricLabels[metric])}>
+            {coveragePalette.map((color, i) => <span key={color}><i style={{backgroundColor: color}} />
+              {i * 20}{i === 4 ? '–' : '–<'}{(i + 1) * 20}%</span>)}
+            <span><i style={{backgroundColor: noHabitatColor}} />{t('areaNoEligible')}</span>
+          </div>
+          <div className={'city-coverage-layout' + (heatmapOnly ? ' heatmap-only' : '')}>
+            {heatmapOnly ? null : geography.data ? <CityCoverageMap footprints={geography.data} cities={visible} strategy={strategy}
+              metric={metric} language={language} t={t} onPick={row => openCity(row, 'city-coverage-title')} />
+              : <RequestStatus t={t} error={geography.error} retry={geography.retry}>{t('areaMapLoading')}</RequestStatus>}
+            <div className="city-heat-wrap" role="region" aria-label={t('areaHeatmap')} tabIndex={0}>
+              <table className="city-heat"><caption>{t('areaHeatmap')}</caption>
+                <thead><tr><th scope="col">{t('areaCity')}</th>{areaStrategies.map(s =>
+                  <th key={s} scope="col" className={!heatmapOnly && strategy === s ? 'city-active-strategy' : undefined}>{t(strategyLabel[s])}</th>
+                )}</tr></thead>
+                <tbody>{visible.map(row => <tr key={row.cityId}>
+                  <th scope="row"><button type="button" id={'heat-city-' + row.cityId} className="text-button"
+                    onClick={() => openCity(row, 'heat-city-' + row.cityId)}>{cityName(row, language)}</button></th>
+                  {areaStrategies.map(s => {
+                    const value = row.summary[s][metric]
+                    return <td key={s} style={{backgroundColor: coverageColor(value), color: value !== null && value >= 60 ? 'white' : '#281d21'}}
+                      aria-label={value === null ? t('areaNoEligible') : undefined}>{pct(value)}{value !== null && '%'}</td>
+                  })}
+                </tr>)}</tbody>
+              </table>
+            </div>
+          </div>
+        </> : <p role="status">{t('areaNoCity')}</p>}
+      </section><section className="panel area-card">
+        <h2>{t('areaCitiesShown', {count: visible.length, total: cities.length})}</h2>
+        {visible.length ? <>
           <p className="area-note">{t('areaTableHelp')}</p>
           <div className="area-table-wrap area-directory-wrap" role="region" aria-label={t('areaDirectoryTitle')} tabIndex={0}>
             <table className="area-table area-directory">
@@ -211,7 +263,7 @@ export function AreaComparison({ catalog, language, t }: ViewProps) {
               ])}</tr></thead>
               <tbody>{visible.map(row => <tr key={row.cityId}>
                 <th scope="row"><button type="button" id={'area-city-'+row.cityId} className="text-button"
-                  onClick={() => { previousCity.current = row.cityId; setCity(row) }}>{cityName(row, language)}</button></th>
+                  onClick={() => openCity(row, 'area-city-' + row.cityId)}>{cityName(row, language)}</button></th>
                 <td>{compact.format(row.areaKm2)}</td><td>{compact.format(row.budgetKm2)}</td>
                 {areaStrategies.flatMap(s => [<td key={s+'p'}>{pct(row.summary[s].persistentPct)}</td>,
                   <td key={s+'g'}>{pct(row.summary[s].gainPct)}</td>,
@@ -219,7 +271,7 @@ export function AreaComparison({ catalog, language, t }: ViewProps) {
               </tr>)}</tbody>
             </table>
           </div></> : <p role="status">{t('areaNoCity')}</p>}
-      </section>}
+      </section></>}
   </main>
 }
 

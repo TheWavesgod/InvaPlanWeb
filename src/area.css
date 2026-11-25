@@ -1,6 +1,32 @@
 .area-workspace { max-width: 1460px; display: grid; gap: 14px; padding-bottom: 28px; }
 .area-workspace .page-head { margin-bottom: 0; }
 .area-back { margin-bottom: 8px; }
+.city-coverage .city-coverage-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; max-width: 100%; }
+.city-coverage-layout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; margin-top: 12px; }
+.city-map-frame, .city-heat-wrap { height: clamp(350px, 42vw, 475px); border: 1px solid var(--line); border-radius: 7px; }
+.city-map-frame { position: relative; overflow: hidden; }
+.city-map-canvas { position: absolute; inset: 0; background: #f2f4f4; }
+.city-coverage-layout.heatmap-only { grid-template-columns: minmax(0, 1fr); }
+.city-map-canvas .city-locator { pointer-events: none; background: transparent; border: 0; box-shadow: none; padding: 1px; color: #3d3540; text-shadow: 0 0 3px white, 1px 1px 2px white, -1px -1px 2px white; font-size: 11px; }
+.city-map-canvas .city-locator::before { display: none; }
+.city-map-reset { position: absolute; top: 9px; right: 9px; z-index: 500; background: var(--paper); }
+.city-heat-wrap { overflow: auto; }
+.city-heat { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+.city-heat caption { padding: 8px; text-align: start; font-weight: 650; background: var(--paper); }
+.city-heat thead { position: sticky; top: 0; z-index: 1; background: #f1eeea; }
+.city-heat th, .city-heat td { padding: 6px 8px; border: 1px solid var(--paper); }
+.city-heat th { text-align: start; }
+.city-heat td { text-align: center; }
+.city-heat th.city-active-strategy { box-shadow: inset 0 -3px #80374a; }
+.city-heat th .text-button { text-align: start; }
+.city-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 14px; margin-top: 10px; font-size: 12px; }
+.city-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.city-legend i { width: 16px; height: 11px; border-radius: 2px; box-shadow: inset 0 0 0 1px #0002; }
+@media (max-width: 740px) {
+  .city-coverage-layout { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .city-map-frame { height: 350px; }
+  .city-heat-wrap { height: 265px; }
+}
 .area-controls input[type="search"] { min-height: 34px; border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; color: var(--ink); background: var(--paper); }
 .area-directory-wrap { max-height: 66vh; margin-top: 10px; overflow: auto; }
 .area-directory { min-width: 880px; font-variant-numeric: tabular-nums; }

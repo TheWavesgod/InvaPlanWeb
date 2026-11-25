@@ -139,6 +139,21 @@ class AreaComparisonTests(unittest.TestCase):
             collection.get("111111")
         self.assertEqual(collection.get("222222").comparison(5, "ssp126")["cityId"], "222222")
 
+    def test_directory_footprints_use_verified_cells_without_loading_predictions(self):
+        index = self.make_city_index()
+        collection = load_area_catalog(self.directory, self.sample, self.climate)
+        with patch("backend.area_comparison.read_city", side_effect=AssertionError("unexpected prediction read")):
+            features = json.loads(collection.footprint_geojson())["features"]
+        self.assertEqual([f["properties"]["cityId"] for f in features], ["111111", "222222"])
+        self.assertEqual(set(map(tuple, features[0]["geometry"]["coordinates"][0][0])),
+                         {(121, 30), (122, 30), (121, 30.1), (122, 30.1)})
+        index["cities"][1]["supportSha256"] = "0" * 64
+        (self.directory / "area-cities.json").write_text(json.dumps(index), encoding="utf-8")
+        invalid = load_area_catalog(self.directory, self.sample, self.climate)
+        with self.assertRaisesRegex(ValueError, "municipal support"):
+            invalid.footprint_geojson()
+        self.assertIsNone(invalid.outlines)
+
 
 RELEASE_DIR = Path(__file__).resolve().parent.parent / "data/jiaxing-39"
 

@@ -11,8 +11,10 @@ from typing import Annotated, Literal
 from zipfile import BadZipFile
 
 import numpy as np
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from rasterio.features import shapes
+from rasterio.transform import from_bounds
 
 from .climate import SCENARIOS
 from .datasets import Grid
@@ -323,6 +325,8 @@ class CityCatalog:
         self.paths = {}
         self.cache = OrderedDict()
         self.lock = Lock()
+        self.outline_lock = Lock()
+        self.outlines = None
         directory = directory.resolve(strict=True)
         for entry in entries:
             path = (directory / entry.file).resolve()
@@ -339,6 +343,34 @@ class CityCatalog:
     def overview(self, budget, holdout):
         return {"budget": budget, "holdout": holdout,
                 "cities": [entry.overview(budget, holdout) for entry in self.entries.values()]}
+
+    def footprint_geojson(self):
+        # The geometry is common to every budget and pathway. Read only the support arrays.
+        with self.outline_lock:
+            if self.outlines is None:
+                features = []
+                for city_id, entry in self.entries.items():
+                    with np.load(self.paths[city_id], allow_pickle=False) as archive:
+                        meta = json.loads(archive["meta"].item())
+                        grid = Grid.model_validate(meta["grid"])
+                        indices, areas = archive["indices"], archive["areas"]
+                    if (meta["cityId"] != city_id or meta["releaseVersion"] != self.sample.data_version
+                            or indices.size != entry.cellCount or areas.shape != indices.shape):
+                        raise ValueError("Footprint does not match its city entry.")
+                    verify_grid(grid, indices, self.sample, city_id)
+                    verify_city_support(grid, indices, areas, entry.supportSha256)
+                    mask = np.zeros((grid.height, grid.width), dtype="uint8")
+                    mask.flat[indices] = 1
+                    transform = from_bounds(*grid.bounds, grid.width, grid.height)
+                    polygons = []
+                    for polygon, _ in shapes(mask, mask=mask.astype(bool), transform=transform):
+                        polygons.append([[[round(x, 6), round(y, 6)] for x, y in ring]
+                                         for ring in polygon["coordinates"]])
+                    features.append({"type": "Feature", "properties": {"cityId": city_id},
+                                     "geometry": {"type": "MultiPolygon", "coordinates": polygons}})
+                self.outlines = json.dumps({"type": "FeatureCollection", "features": features},
+                                           separators=(",", ":"), allow_nan=False).encode()
+            return self.outlines
 
     def get(self, city_id):
         with self.lock:
@@ -405,6 +437,18 @@ def overview(request: Request, budget: int = 10, holdout: Holdout = "ssp585"):
     if catalog is None:
         raise HTTPException(404, "area_comparison_unavailable")
     return catalog.overview(budget, holdout)
+
+
+@router.get("/footprints")
+def city_footprints(request: Request):
+    catalog = request.app.state.area_comparison
+    if catalog is None:
+        raise HTTPException(404, "area_comparison_unavailable")
+    try:
+        return Response(catalog.footprint_geojson(), media_type="application/geo+json")
+    except (OSError, ValueError, KeyError, BadZipFile):
+        logger.exception("Unable to verify municipal footprints")
+        raise HTTPException(503, "area_comparison_invalid") from None
 
 
 @router.get("/{city_id}")
