@@ -1,6 +1,8 @@
 services:
   invaplan:
-    build: .
+    build:
+      context: .
+      target: local
     ports:
       - "127.0.0.1:${INVAPLAN_PORT:-8766}:8765"
     volumes:

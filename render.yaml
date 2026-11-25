@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: invaplan-review
+    runtime: docker
+    branch: binyue/public-demo
+    region: frankfurt
+    plan: 1c-2g
+    autoDeployTrigger: "off"
+    healthCheckPath: /healthz
+    disk:
+      name: research
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: INVAPLAN_REVIEW_PASSWORD
+        generateValue: true
+      - key: INVAPLAN_RELEASE_DIR
+        value: /var/data/release
+      - key: INVAPLAN_AREA_DIR
+        value: /var/data/area-cities
